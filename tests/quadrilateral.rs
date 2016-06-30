@@ -1,6 +1,9 @@
 extern crate cassowary;
 use cassowary::{ Solver, Variable };
 use cassowary::WeightedRelation::*;
+use std::collections::HashMap;
+use std::cell::RefCell;
+use std::rc::Rc;
 #[test]
 fn test_quadrilateral() {
     use cassowary::strength::{WEAK, STRONG, REQUIRED};
@@ -16,6 +19,22 @@ fn test_quadrilateral() {
             }
         }
     }
+
+    let mut values = Rc::new(RefCell::new(HashMap::<Variable, f64>::new()));
+    let value_of = {
+        let values = values.clone();
+        move |v| *values.borrow().get(&v).unwrap_or(&0.0)
+    };
+    let update_values = {
+        let values = values.clone();
+        move |changes: &[_]| {
+            for &(ref var, ref value) in changes {
+                println!("{:?} changed to {:?}", var, value);
+                values.borrow_mut().insert(*var, *value);
+            }
+        }
+    };
+
     let points = [Point::new(),
                   Point::new(),
                   Point::new(),
@@ -62,12 +81,12 @@ fn test_quadrilateral() {
                                  point.y |LE(REQUIRED)| 500.0]).unwrap()
     }
 
-    solver.update_variables();
+    update_values(solver.fetch_changes());
 
-    assert_eq!([(solver.value_for(midpoints[0].x).unwrap(), solver.value_for(midpoints[0].y).unwrap()),
-                (solver.value_for(midpoints[1].x).unwrap(), solver.value_for(midpoints[1].y).unwrap()),
-                (solver.value_for(midpoints[2].x).unwrap(), solver.value_for(midpoints[2].y).unwrap()),
-                (solver.value_for(midpoints[3].x).unwrap(), solver.value_for(midpoints[3].y).unwrap())],
+    assert_eq!([(value_of(midpoints[0].x), value_of(midpoints[0].y)),
+                (value_of(midpoints[1].x), value_of(midpoints[1].y)),
+                (value_of(midpoints[2].x), value_of(midpoints[2].y)),
+                (value_of(midpoints[3].x), value_of(midpoints[3].y))],
                [(10.0, 105.0),
                 (105.0, 200.0),
                 (200.0, 105.0),
@@ -78,21 +97,21 @@ fn test_quadrilateral() {
     solver.suggest_value(points[2].x, 300.0).unwrap();
     solver.suggest_value(points[2].y, 400.0).unwrap();
 
-    solver.update_variables();
+    update_values(solver.fetch_changes());
 
-    assert_eq!([(solver.value_for(points[0].x).unwrap(), solver.value_for(points[0].y).unwrap()),
-                (solver.value_for(points[1].x).unwrap(), solver.value_for(points[1].y).unwrap()),
-                (solver.value_for(points[2].x).unwrap(), solver.value_for(points[2].y).unwrap()),
-                (solver.value_for(points[3].x).unwrap(), solver.value_for(points[3].y).unwrap())],
+    assert_eq!([(value_of(points[0].x), value_of(points[0].y)),
+                (value_of(points[1].x), value_of(points[1].y)),
+                (value_of(points[2].x), value_of(points[2].y)),
+                (value_of(points[3].x), value_of(points[3].y))],
                [(10.0, 10.0),
                 (10.0, 200.0),
                 (300.0, 400.0),
                 (200.0, 10.0)]);
 
-    assert_eq!([(solver.value_for(midpoints[0].x).unwrap(), solver.value_for(midpoints[0].y).unwrap()),
-                (solver.value_for(midpoints[1].x).unwrap(), solver.value_for(midpoints[1].y).unwrap()),
-                (solver.value_for(midpoints[2].x).unwrap(), solver.value_for(midpoints[2].y).unwrap()),
-                (solver.value_for(midpoints[3].x).unwrap(), solver.value_for(midpoints[3].y).unwrap())],
+    assert_eq!([(value_of(midpoints[0].x), value_of(midpoints[0].y)),
+                (value_of(midpoints[1].x), value_of(midpoints[1].y)),
+                (value_of(midpoints[2].x), value_of(midpoints[2].y)),
+                (value_of(midpoints[3].x), value_of(midpoints[3].y))],
                [(10.0, 105.0),
                 (155.0, 300.0),
                 (250.0, 205.0),

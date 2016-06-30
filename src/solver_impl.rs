@@ -18,7 +18,7 @@ use {
 
 use ::std::rc::Rc;
 use ::std::cell::RefCell;
-use ::std::collections::HashMap;
+use ::std::collections::{ HashMap, HashSet };
 
 #[derive(Copy, Clone)]
 struct Tag {
@@ -36,10 +36,14 @@ struct EditInfo {
 /// A constraint solver using the Cassowary algorithm. For proper usage please see the top level crate documentation.
 pub struct Solver {
     cns: HashMap<Constraint, Tag>,
-    vars: HashMap<Variable, (f64, Symbol, usize)>,
+    var_data: HashMap<Variable, (f64, Symbol, usize)>,
+    var_for_symbol: HashMap<Symbol, Variable>,
+    public_changes: Vec<(Variable, f64)>,
+    changed: HashSet<Variable>,
+    should_clear_changes: bool,
     rows: HashMap<Symbol, Box<Row>>,
     edits: HashMap<Variable, EditInfo>,
-    infeasible_rows: Vec<Symbol>,
+    infeasible_rows: Vec<Symbol>, // never contains external symbols
     objective: Rc<RefCell<Row>>,
     artificial: Option<Rc<RefCell<Row>>>,
     id_tick: usize
@@ -50,7 +54,11 @@ impl Solver {
     pub fn new() -> Solver {
         Solver {
             cns: HashMap::new(),
-            vars: HashMap::new(),
+            var_data: HashMap::new(),
+            var_for_symbol: HashMap::new(),
+            public_changes: Vec::new(),
+            changed: HashSet::new(),
+            should_clear_changes: false,
             rows: HashMap::new(),
             edits: HashMap::new(),
             infeasible_rows: Vec::new(),
@@ -58,11 +66,6 @@ impl Solver {
             artificial: None,
             id_tick: 1
         }
-    }
-
-    /// Get the current value assigned to a variable by the solver, if any.
-    pub fn value_for(&self, v: Variable) -> Option<f64> {
-        self.vars.get(&v).map(|x| x.0)
     }
 
     pub fn add_constraints<'a, I: IntoIterator<Item = &'a Constraint>>(
@@ -115,6 +118,10 @@ impl Solver {
         } else {
             row.solve_for_symbol(subject);
             self.substitute(subject, &row);
+            if subject.type_() == SymbolType::External && row.constant != 0.0 {
+                let v = self.var_for_symbol[&subject];
+                self.var_changed(v);
+            }
             self.rows.insert(subject, row);
         }
 
@@ -159,12 +166,13 @@ impl Solver {
         for term in &constraint.expr().terms {
             if !near_zero(term.coefficient) {
                 let mut should_remove = false;
-                if let Some(&mut (_, _, ref mut count)) = self.vars.get_mut(&term.variable) {
+                if let Some(&mut (_, _, ref mut count)) = self.var_data.get_mut(&term.variable) {
                     *count -= 1;
                     should_remove = *count == 0;
                 }
                 if should_remove {
-                    self.vars.remove(&term.variable);
+                    self.var_for_symbol.remove(&self.var_data[&term.variable].1);
+                    self.var_data.remove(&term.variable);
                 }
             }
         }
@@ -232,6 +240,8 @@ impl Solver {
             info.constant = value;
             (info.tag.marker, info.tag.other, delta)
         };
+        // tag.marker and tag.other are never external symbols
+
         // The nice version of the following code runs into non-lexical borrow issues.
         // Ideally the `if row...` code would be in the body of the if. Pretend that it is.
         {
@@ -253,8 +263,18 @@ impl Solver {
             } else {
                 for (symbol, row) in &mut self.rows {
                     let coeff = row.coefficient_for(info_tag_marker);
+                    let diff = delta * coeff;
+                    if diff != 0.0 && symbol.type_() == SymbolType::External {
+                        let v = self.var_for_symbol[symbol];
+                        // inline var_changed - borrow checker workaround
+                        if self.should_clear_changes {
+                            self.changed.clear();
+                            self.should_clear_changes = false;
+                        }
+                        self.changed.insert(v);
+                    }
                     if coeff != 0.0 &&
-                        row.add(delta * coeff) < 0.0 &&
+                        row.add(diff) < 0.0 &&
                         symbol.type_() != SymbolType::External
                     {
                         infeasible_rows.push(*symbol);
@@ -266,11 +286,40 @@ impl Solver {
         return Ok(());
     }
 
-    /// Update the values of the external solver variables.
-    pub fn update_variables(&mut self) {
-        for (_, &mut (ref mut value, ref symbol, _)) in &mut self.vars {
-            *value = self.rows.get(symbol).map(|r| r.constant).unwrap_or(0.0);
+    fn var_changed(&mut self, v: Variable) {
+        if self.should_clear_changes {
+            self.changed.clear();
+            self.should_clear_changes = false;
         }
+        self.changed.insert(v);
+    }
+
+    /// Fetches all changes to the values of variables since the last call to this function.
+    ///
+    /// The list of changes returned is not in a specific order. Each change comprises the variable changed and
+    /// the new value of that variable.
+    ///
+    /// Note that variables start with an implicit value of zero.
+    /// If a variable never changes from zero a change may not be returned from this function for it.
+    pub fn fetch_changes(&mut self) -> &[(Variable, f64)] {
+        if self.should_clear_changes {
+            self.changed.clear();
+            self.should_clear_changes = false;
+        } else {
+            self.should_clear_changes = true;
+        }
+        self.public_changes.clear();
+        for &v in &self.changed {
+            let new_value = self.rows.get(&self.var_data[&v].1).map(|r| r.constant).unwrap_or(0.0);
+            let old_value = self.var_data.get(&v).unwrap().0;
+            if old_value != new_value {
+                self.public_changes.push((v, new_value));
+                self.var_data.get_mut(&v).unwrap().0 = new_value;
+            } else {
+                println!("Spurious change");
+            }
+        }
+        &self.public_changes
     }
 
     /// Reset the solver to the empty starting condition.
@@ -283,7 +332,10 @@ impl Solver {
     pub fn reset(&mut self) {
         self.rows.clear();
         self.cns.clear();
-        self.vars.clear();
+        self.var_data.clear();
+        self.var_for_symbol.clear();
+        self.changed.clear();
+        self.should_clear_changes = false;
         self.edits.clear();
         self.infeasible_rows.clear();
         *self.objective.borrow_mut() = Row::new(0.0);
@@ -296,10 +348,12 @@ impl Solver {
     /// If a symbol does not exist for the variable, one will be created.
     fn get_var_symbol(&mut self, v: Variable) -> Symbol {
         let id_tick = &mut self.id_tick;
-        let value = self.vars.entry(v).or_insert_with(|| {
+        let var_for_symbol = &mut self.var_for_symbol;
+        let value = self.var_data.entry(v).or_insert_with(|| {
             let s = Symbol(*id_tick, SymbolType::External);
+            var_for_symbol.insert(s, v);
             *id_tick += 1;
-            (0.0, s, 1)
+            (0.0, s, 0)
         });
         value.2 += 1;
         value.1
@@ -452,7 +506,7 @@ impl Solver {
             if row.cells.is_empty() {
                 return Ok(success);
             }
-            let entering = Solver::any_pivotable_symbol(&row);
+            let entering = Solver::any_pivotable_symbol(&row); // never External
             if entering.type_() == SymbolType::Invalid {
                 return Ok(false); // unsatisfiable (will this ever happen?)
             }
@@ -475,7 +529,16 @@ impl Solver {
     /// in the tableau and the objective function with the given row.
     fn substitute(&mut self, symbol: Symbol, row: &Row) {
         for (&other_symbol, other_row) in &mut self.rows {
-            other_row.substitute(symbol, row);
+            let constant_changed = other_row.substitute(symbol, row);
+            if other_symbol.type_() == SymbolType::External && constant_changed {
+                let v = self.var_for_symbol[&other_symbol];
+                // inline var_changed
+                if self.should_clear_changes {
+                    self.changed.clear();
+                    self.should_clear_changes = false;
+                }
+                self.changed.insert(v);
+            }
             if other_symbol.type_() != SymbolType::External && other_row.constant < 0.0 {
                 self.infeasible_rows.push(other_symbol);
             }
@@ -501,6 +564,10 @@ impl Solver {
             // pivot the entering symbol into the basis
             row.solve_for_symbols(leaving, entering);
             self.substitute(entering, &row);
+            if entering.type_() == SymbolType::External && row.constant != 0.0 {
+                let v = self.var_for_symbol[&entering];
+                self.var_changed(v);
+            }
             self.rows.insert(entering, row);
         }
     }
@@ -524,6 +591,10 @@ impl Solver {
                 // pivot the entering symbol into the basis
                 row.solve_for_symbols(leaving, entering);
                 self.substitute(entering, &row);
+                if entering.type_() == SymbolType::External && row.constant != 0.0 {
+                    let v = self.var_for_symbol[&entering];
+                    self.var_changed(v);
+                }
                 self.rows.insert(entering, row);
             }
         }
@@ -536,6 +607,7 @@ impl Solver {
     /// is non-dummy and has a coefficient less than zero. If no symbol meets
     /// the criteria, it means the objective function is at a minimum, and an
     /// invalid symbol is returned.
+    /// Could return an External symbol
     fn get_entering_symbol(objective: &Row) -> Symbol {
         for (symbol, value) in &objective.cells {
             if symbol.type_() != SymbolType::Dummy && *value < 0.0 {
@@ -552,6 +624,7 @@ impl Solver {
     /// in the objective function. The provided row *must* be infeasible.
     /// If no symbol is found which meats the criteria, an invalid symbol
     /// is returned.
+    /// Could return an External symbol
     fn get_dual_entering_symbol(&self, row: &Row) -> Symbol {
         let mut entering = Symbol::invalid();
         let mut ratio = ::std::f64::INFINITY;
@@ -572,6 +645,7 @@ impl Solver {
     /// Get the first Slack or Error symbol in the row.
     ///
     /// If no such symbol is present, and Invalid symbol will be returned.
+    /// Never returns an External symbol
     fn any_pivotable_symbol(row: &Row) -> Symbol {
         for symbol in row.cells.keys() {
             if symbol.type_() == SymbolType::Slack || symbol.type_() == SymbolType::Error {
@@ -587,6 +661,7 @@ impl Solver {
     /// which holds the exit symbol. If no appropriate exit symbol is
     /// found, the end() iterator will be returned. This indicates that
     /// the objective function is unbounded.
+    /// Never returns a row for an External symbol
     fn get_leaving_row(&mut self, entering: Symbol) -> Option<(Symbol, Box<Row>)> {
         let mut ratio = ::std::f64::INFINITY;
         let mut found = None;
@@ -652,9 +727,15 @@ impl Solver {
         first
             .or(second)
             .or(third)
-            .and_then(|s| self.rows
-                      .remove(&s)
-                      .map(|r| (s, r)))
+            .and_then(|s| {
+                if s.type_() == SymbolType::External && self.rows[&s].constant != 0.0 {
+                    let v = self.var_for_symbol[&s];
+                    self.var_changed(v);
+                }
+                self.rows
+                    .remove(&s)
+                    .map(|r| (s, r))
+            })
     }
 
     /// Remove the effects of a constraint on the objective function.
