@@ -310,13 +310,15 @@ impl Solver {
         }
         self.public_changes.clear();
         for &v in &self.changed {
-            let new_value = self.rows.get(&self.var_data[&v].1).map(|r| r.constant).unwrap_or(0.0);
-            let old_value = self.var_data.get(&v).unwrap().0;
-            if old_value != new_value {
-                self.public_changes.push((v, new_value));
-                self.var_data.get_mut(&v).unwrap().0 = new_value;
-            } else {
-                println!("Spurious change");
+            if let Some(var_data) = self.var_data.get_mut(&v) {
+                let new_value = self.rows.get(&var_data.1).map(|r| r.constant).unwrap_or(0.0);
+                let old_value = var_data.0;
+                if old_value != new_value {
+                    self.public_changes.push((v, new_value));
+                    var_data.0 = new_value;
+                } else {
+                    println!("Spurious change");
+                }
             }
         }
         &self.public_changes
