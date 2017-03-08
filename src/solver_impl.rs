@@ -85,20 +85,20 @@ impl Solver {
         }
 
         // Creating a row causes symbols to reserved for the variables
-	// in the constraint. If this method exits with an exception,
-	// then its possible those variables will linger in the var map.
-	// Since its likely that those variables will be used in other
-	// constraints and since exceptional conditions are uncommon,
-	// i'm not too worried about aggressive cleanup of the var map.
+        // in the constraint. If this method exits with an exception,
+        // then its possible those variables will linger in the var map.
+        // Since its likely that those variables will be used in other
+        // constraints and since exceptional conditions are uncommon,
+        // i'm not too worried about aggressive cleanup of the var map.
         let (mut row, tag) = self.create_row(&constraint);
         let mut subject = Solver::choose_subject(&row, &tag);
 
         // If chooseSubject could find a valid entering symbol, one
-	// last option is available if the entire row is composed of
-	// dummy variables. If the constant of the row is zero, then
-	// this represents redundant constraints and the new dummy
-	// marker can enter the basis. If the constant is non-zero,
-	// then it represents an unsatisfiable constraint.
+        // last option is available if the entire row is composed of
+        // dummy variables. If the constant of the row is zero, then
+        // this represents redundant constraints and the new dummy
+        // marker can enter the basis. If the constant is non-zero,
+        // then it represents an unsatisfiable constraint.
         if subject.type_() == SymbolType::Invalid && Solver::all_dummies(&row) {
             if !near_zero(row.constant) {
                 return Err(AddConstraintError::UnsatisfiableConstraint);
@@ -109,7 +109,7 @@ impl Solver {
 
         // If an entering symbol still isn't found, then the row must
         // be added using an artificial variable. If that fails, then
-	// the row represents an unsatisfiable constraint.
+        // the row represents an unsatisfiable constraint.
         if subject.type_() == SymbolType::Invalid {
             if !try!(self.add_with_artificial_variable(&row)
                      .map_err(|e| AddConstraintError::InternalSolverError(e.0))) {
@@ -128,8 +128,8 @@ impl Solver {
         self.cns.insert(constraint, tag);
 
         // Optimizing after each constraint is added performs less
-	// aggregate work due to a smaller average system size. It
-	// also ensures the solver remains in a consistent state.
+        // aggregate work due to a smaller average system size. It
+        // also ensures the solver remains in a consistent state.
         let objective = self.objective.clone();
         try!(self.optimise(&objective).map_err(|e| AddConstraintError::InternalSolverError(e.0)));
         Ok(())
@@ -140,12 +140,12 @@ impl Solver {
         let tag = try!(self.cns.remove(constraint).ok_or(RemoveConstraintError::UnknownConstraint));
 
         // Remove the error effects from the objective function
-	// *before* pivoting, or substitutions into the objective
-	// will lead to incorrect solver results.
+        // *before* pivoting, or substitutions into the objective
+        // will lead to incorrect solver results.
         self.remove_constraint_effects(constraint, &tag);
 
         // If the marker is basic, simply drop the row. Otherwise,
-	// pivot the marker into the basis and then drop the row.
+        // pivot the marker into the basis and then drop the row.
         if let None = self.rows.remove(&tag.marker) {
             let (leaving, mut row) = try!(self.get_marker_leaving_row(tag.marker)
                                      .ok_or(
@@ -156,8 +156,8 @@ impl Solver {
         }
 
         // Optimizing after each constraint is removed ensures that the
-	// solver remains consistent. It makes the solver api easier to
-	// use at a small tradeoff for speed.
+        // solver remains consistent. It makes the solver api easier to
+        // use at a small tradeoff for speed.
         let objective = self.objective.clone();
         try!(self.optimise(&objective).map_err(|e| RemoveConstraintError::InternalSolverError(e.0)));
 
@@ -494,14 +494,14 @@ impl Solver {
         self.artificial = Some(Rc::new(RefCell::new(row.clone())));
 
         // Optimize the artificial objective. This is successful
-	// only if the artificial objective is optimized to zero.
+        // only if the artificial objective is optimized to zero.
         let artificial = self.artificial.as_ref().unwrap().clone();
         try!(self.optimise(&artificial));
         let success = near_zero(artificial.borrow().constant);
         self.artificial = None;
 
         // If the artificial variable is basic, pivot the row so that
-	// it becomes basic. If the row is constant, exit early.
+        // it becomes basic. If the row is constant, exit early.
         if let Some(mut row) = self.rows.remove(&art) {
             if row.cells.is_empty() {
                 return Ok(success);
