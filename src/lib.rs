@@ -378,7 +378,7 @@ struct ConstraintData {
     op: RelationalOperator
 }
 
-/// A constraint, consisting of an equation goverened by an expression and a relational operator,
+/// A constraint, consisting of an equation governed by an expression and a relational operator,
 /// and an associated strength.
 #[derive(Clone, Debug)]
 pub struct Constraint(Arc<ConstraintData>);
