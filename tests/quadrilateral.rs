@@ -20,7 +20,7 @@ fn test_quadrilateral() {
         }
     }
 
-    let mut values = Rc::new(RefCell::new(HashMap::<Variable, f64>::new()));
+    let values = Rc::new(RefCell::new(HashMap::<Variable, f64>::new()));
     let value_of = {
         let values = values.clone();
         move |v| *values.borrow().get(&v).unwrap_or(&0.0)
