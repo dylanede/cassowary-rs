@@ -317,7 +317,7 @@ impl Solver {
                     self.public_changes.push((v, new_value));
                     var_data.0 = new_value;
                 } else {
-                    println!("Spurious change");
+                    info!("Spurious change");
                 }
             }
         }

@@ -229,6 +229,9 @@ use std::sync::Arc;
 use std::collections::HashMap;
 use std::collections::hash_map::{Entry};
 
+#[macro_use]
+extern crate log;
+
 mod solver_impl;
 mod operators;
 
