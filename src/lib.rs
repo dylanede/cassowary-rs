@@ -247,6 +247,12 @@ impl Variable {
     }
 }
 
+impl Default for Variable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// A variable and a coefficient to multiply that variable by. This is a sub-expression in
 /// a constraint equation.
 #[derive(Copy, Clone, Debug)]

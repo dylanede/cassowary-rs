@@ -768,3 +768,9 @@ impl Solver {
         true
     }
 }
+
+impl Default for Solver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
