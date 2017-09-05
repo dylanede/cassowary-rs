@@ -1,9 +1,10 @@
 extern crate cassowary;
 use cassowary::{ Solver, Variable };
 use cassowary::WeightedRelation::*;
-use std::collections::HashMap;
-use std::cell::RefCell;
-use std::rc::Rc;
+
+mod common;
+use common::new_values;
+
 #[test]
 fn test_quadrilateral() {
     use cassowary::strength::{WEAK, STRONG, REQUIRED};
@@ -19,21 +20,7 @@ fn test_quadrilateral() {
             }
         }
     }
-
-    let values = Rc::new(RefCell::new(HashMap::<Variable, f64>::new()));
-    let value_of = {
-        let values = values.clone();
-        move |v| *values.borrow().get(&v).unwrap_or(&0.0)
-    };
-    let update_values = {
-        let values = values.clone();
-        move |changes: &[_]| {
-            for &(ref var, ref value) in changes {
-                println!("{:?} changed to {:?}", var, value);
-                values.borrow_mut().insert(*var, *value);
-            }
-        }
-    };
+    let (value_of, update_values) = new_values();
 
     let points = [Point::new(),
                   Point::new(),
