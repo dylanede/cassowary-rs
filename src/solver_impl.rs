@@ -355,7 +355,7 @@ impl Solver {
             let s = Symbol(*id_tick, SymbolType::External);
             var_for_symbol.insert(s, v);
             *id_tick += 1;
-            (0.0, s, 0)
+            (::std::f64::NAN, s, 0)
         });
         value.2 += 1;
         value.1
