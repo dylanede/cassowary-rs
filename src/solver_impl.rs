@@ -583,9 +583,8 @@ impl Solver {
     fn dual_optimise(&mut self) -> Result<(), InternalSolverError> {
         while !self.infeasible_rows.is_empty() {
             let leaving = self.infeasible_rows.pop().unwrap();
-            if let Some(mut row) = self.rows.remove(&leaving)
-                .and_then(|row| if row.constant < 0.0 { Some(row) } else { None })
-            {
+            if self.rows.get(&leaving).map_or(false, |row| row.constant < 0.0) {
+                let mut row = self.rows.remove(&leaving).unwrap();
                 let entering = self.get_dual_entering_symbol(&row);
                 if entering.type_() == SymbolType::Invalid {
                     return Err(InternalSolverError("Dual optimise failed."));
