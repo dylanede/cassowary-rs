@@ -314,8 +314,6 @@ impl Solver {
                 if old_value != new_value {
                     self.public_changes.push((v, new_value));
                     var_data.0 = new_value;
-                } else {
-                    info!("Spurious change");
                 }
             }
         }

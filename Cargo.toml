@@ -16,4 +16,3 @@ license = "MIT / Apache-2.0"
 keywords = ["constraint", "simplex", "user", "interface", "layout"]
 
 [dependencies]
-log = "0.3"
