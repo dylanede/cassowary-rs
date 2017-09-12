@@ -767,4 +767,14 @@ impl Solver {
         }
         true
     }
+
+    /// Get the stored value for a variable.
+    ///
+    /// Normally values should be retrieved and updated using `fetch_changes`, but
+    /// this method can be used for debugging or testing.
+    pub fn get_value(&self, v: Variable) -> f64 {
+        self.var_data.get(&v).and_then(|s| {
+            self.rows.get(&s.1).map(|r| r.constant)
+        }).unwrap_or(0.0)
+    }
 }
