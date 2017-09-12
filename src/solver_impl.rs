@@ -225,7 +225,7 @@ impl Solver {
     }
 
     /// Test whether an edit variable has been added to the solver.
-    pub fn has_edit_variable(&mut self, v: &Variable) -> bool {
+    pub fn has_edit_variable(&self, v: &Variable) -> bool {
         self.edits.contains_key(v)
     }
 
