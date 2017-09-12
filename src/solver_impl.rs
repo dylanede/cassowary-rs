@@ -299,9 +299,6 @@ impl Solver {
     ///
     /// The list of changes returned is not in a specific order. Each change comprises the variable changed and
     /// the new value of that variable.
-    ///
-    /// Note that variables start with an implicit value of zero.
-    /// If a variable never changes from zero a change may not be returned from this function for it.
     pub fn fetch_changes(&mut self) -> &[(Variable, f64)] {
         if self.should_clear_changes {
             self.changed.clear();
