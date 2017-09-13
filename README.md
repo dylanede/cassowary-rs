@@ -31,7 +31,7 @@ Add the following to your Cargo.toml:
 
 ```toml
 [dependencies]
-cassowary = "0.2.1"
+cassowary = "^0.3.0"
 ```
 
 Please read the documentation (linked above) for how to best use this crate.
