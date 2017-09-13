@@ -782,3 +782,9 @@ impl Solver {
         }).unwrap_or(0.0)
     }
 }
+
+impl Default for Solver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
