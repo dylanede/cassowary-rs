@@ -19,6 +19,7 @@ use {
 use ::std::rc::Rc;
 use ::std::cell::RefCell;
 use ::std::collections::{ HashMap, HashSet };
+use ::std::collections::hash_map::Entry;
 
 #[derive(Copy, Clone)]
 struct Tag {
@@ -225,7 +226,7 @@ impl Solver {
     }
 
     /// Test whether an edit variable has been added to the solver.
-    pub fn has_edit_variable(&mut self, v: &Variable) -> bool {
+    pub fn has_edit_variable(&self, v: &Variable) -> bool {
         self.edits.contains_key(v)
     }
 
@@ -298,9 +299,6 @@ impl Solver {
     ///
     /// The list of changes returned is not in a specific order. Each change comprises the variable changed and
     /// the new value of that variable.
-    ///
-    /// Note that variables start with an implicit value of zero.
-    /// If a variable never changes from zero a change may not be returned from this function for it.
     pub fn fetch_changes(&mut self) -> &[(Variable, f64)] {
         if self.should_clear_changes {
             self.changed.clear();
@@ -316,8 +314,6 @@ impl Solver {
                 if old_value != new_value {
                     self.public_changes.push((v, new_value));
                     var_data.0 = new_value;
-                } else {
-                    println!("Spurious change");
                 }
             }
         }
@@ -355,7 +351,7 @@ impl Solver {
             let s = Symbol(*id_tick, SymbolType::External);
             var_for_symbol.insert(s, v);
             *id_tick += 1;
-            (0.0, s, 0)
+            (::std::f64::NAN, s, 0)
         });
         value.2 += 1;
         value.1
@@ -583,9 +579,17 @@ impl Solver {
     fn dual_optimise(&mut self) -> Result<(), InternalSolverError> {
         while !self.infeasible_rows.is_empty() {
             let leaving = self.infeasible_rows.pop().unwrap();
-            if let Some(mut row) = self.rows.remove(&leaving)
-                .and_then(|row| if row.constant < 0.0 { Some(row) } else { None })
-            {
+
+            let row = if let Entry::Occupied(entry) = self.rows.entry(leaving) {
+                if entry.get().constant < 0.0 {
+                    Some(entry.remove())
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            if let Some(mut row) = row {
                 let entering = self.get_dual_entering_symbol(&row);
                 if entering.type_() == SymbolType::Invalid {
                     return Err(InternalSolverError("Dual optimise failed."));
@@ -766,5 +770,15 @@ impl Solver {
             }
         }
         true
+    }
+
+    /// Get the stored value for a variable.
+    ///
+    /// Normally values should be retrieved and updated using `fetch_changes`, but
+    /// this method can be used for debugging or testing.
+    pub fn get_value(&self, v: Variable) -> f64 {
+        self.var_data.get(&v).and_then(|s| {
+            self.rows.get(&s.1).map(|r| r.constant)
+        }).unwrap_or(0.0)
     }
 }
