@@ -8,13 +8,13 @@ use {
     Row,
     AddConstraintError,
     RemoveConstraintError,
-    InternalSolverError,
     SuggestValueError,
     AddEditVariableError,
     RemoveEditVariableError,
     RelationalOperator,
     near_zero
 };
+use error::InternalSolverError;
 
 use ::std::rc::Rc;
 use ::std::cell::RefCell;
