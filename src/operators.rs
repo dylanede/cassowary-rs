@@ -138,8 +138,14 @@ impl ops::Add<Expression> for Variable {
 impl ops::Add<Variable> for Expression {
     type Output = Expression;
     fn add(mut self, v: Variable) -> Expression {
-        self.terms.push(Term::new(v, 1.0));
+        self += v;
         self
+    }
+}
+
+impl ops::AddAssign<Variable> for Expression {
+    fn add_assign(&mut self, v: Variable) {
+        self.terms.push(Term::new(v, 1.0));
     }
 }
 
@@ -211,8 +217,14 @@ impl ops::Sub<Expression> for Variable {
 impl ops::Sub<Variable> for Expression {
     type Output = Expression;
     fn sub(mut self, v: Variable) -> Expression {
-        self.terms.push(Term::new(v, -1.0));
+        self -= v;
         self
+    }
+}
+
+impl ops::SubAssign<Variable> for Expression {
+    fn sub_assign(&mut self, v: Variable) {
+        self.terms.push(Term::new(v, -1.0));
     }
 }
 
@@ -263,8 +275,14 @@ impl ops::Div<f32> for Variable {
 impl ops::Mul<f64> for Term {
     type Output = Term;
     fn mul(mut self, v: f64) -> Term {
-        self.coefficient *= v;
+        self *= v;
         self
+    }
+}
+
+impl ops::MulAssign<f64> for Term {
+    fn mul_assign(&mut self, v: f64) {
+        self.coefficient *= v;
     }
 }
 
@@ -272,6 +290,12 @@ impl ops::Mul<f32> for Term {
     type Output = Term;
     fn mul(self, v: f32) -> Term {
         self.mul(v as f64)
+    }
+}
+
+impl ops::MulAssign<f32> for Term {
+    fn mul_assign(&mut self, v: f32) {
+        self.mul_assign(v as f64)
     }
 }
 
@@ -293,8 +317,14 @@ impl ops::Mul<Term> for f32 {
 impl ops::Div<f64> for Term {
     type Output = Term;
     fn div(mut self, v: f64) -> Term {
-        self.coefficient /= v;
+        self /= v;
         self
+    }
+}
+
+impl ops::DivAssign<f64> for Term {
+    fn div_assign(&mut self, v: f64) {
+        self.coefficient /= v;
     }
 }
 
@@ -302,6 +332,12 @@ impl ops::Div<f32> for Term {
     type Output = Term;
     fn div(self, v: f32) -> Term {
         self.div(v as f64)
+    }
+}
+
+impl ops::DivAssign<f32> for Term {
+    fn div_assign(&mut self, v: f32) {
+        self.div_assign(v as f64)
     }
 }
 
@@ -351,8 +387,14 @@ impl ops::Add<Expression> for Term {
 impl ops::Add<Term> for Expression {
     type Output = Expression;
     fn add(mut self, t: Term) -> Expression {
-        self.terms.push(t);
+        self += t;
         self
+    }
+}
+
+impl ops::AddAssign<Term> for Expression {
+    fn add_assign(&mut self, t: Term) {
+        self.terms.push(t);
     }
 }
 
@@ -411,8 +453,14 @@ impl ops::Sub<Expression> for Term {
 impl ops::Sub<Term> for Expression {
     type Output = Expression;
     fn sub(mut self, t: Term) -> Expression {
-        self.terms.push(-t);
+        self -= t;
         self
+    }
+}
+
+impl ops::SubAssign<Term> for Expression {
+    fn sub_assign(&mut self, t: Term) {
+        self.terms.push(-t);
     }
 }
 
@@ -421,11 +469,17 @@ impl ops::Sub<Term> for Expression {
 impl ops::Mul<f64> for Expression {
     type Output = Expression;
     fn mul(mut self, v: f64) -> Expression {
+        self *= v;
+        self
+    }
+}
+
+impl ops::MulAssign<f64> for Expression {
+    fn mul_assign(&mut self, v: f64) {
         self.constant *= v;
         for t in &mut self.terms {
             *t = *t * v;
         }
-        self
     }
 }
 
@@ -433,6 +487,12 @@ impl ops::Mul<f32> for Expression {
     type Output = Expression;
     fn mul(self, v: f32) -> Expression {
         self.mul(v as f64)
+    }
+}
+
+impl ops::MulAssign<f32> for Expression {
+    fn mul_assign(&mut self, v: f32) {
+        self.mul_assign(v as f64)
     }
 }
 
@@ -457,11 +517,17 @@ impl ops::Mul<Expression> for f32 {
 impl ops::Div<f64> for Expression {
     type Output = Expression;
     fn div(mut self, v: f64) -> Expression {
+        self /= v;
+        self
+    }
+}
+
+impl ops::DivAssign<f64> for Expression {
+    fn div_assign(&mut self, v: f64) {
         self.constant /= v;
         for t in &mut self.terms {
             *t = *t / v;
         }
-        self
     }
 }
 
@@ -472,11 +538,23 @@ impl ops::Div<f32> for Expression {
     }
 }
 
+impl ops::DivAssign<f32> for Expression {
+    fn div_assign(&mut self, v: f32) {
+        self.div_assign(v as f64)
+    }
+}
+
 impl ops::Add<f64> for Expression {
     type Output = Expression;
     fn add(mut self, v: f64) -> Expression {
-        self.constant += v;
+        self += v;
         self
+    }
+}
+
+impl ops::AddAssign<f64> for Expression {
+    fn add_assign(&mut self, v: f64) {
+        self.constant += v;
     }
 }
 
@@ -484,6 +562,12 @@ impl ops::Add<f32> for Expression {
     type Output = Expression;
     fn add(self, v: f32) -> Expression {
         self.add(v as f64)
+    }
+}
+
+impl ops::AddAssign<f32> for Expression {
+    fn add_assign(&mut self, v: f32) {
+        self.add_assign(v as f64)
     }
 }
 
@@ -504,10 +588,16 @@ impl ops::Add<Expression> for f32 {
 
 impl ops::Add<Expression> for Expression {
     type Output = Expression;
-    fn add(mut self, mut e: Expression) -> Expression {
+    fn add(mut self, e: Expression) -> Expression {
+        self += e;
+        self
+    }
+}
+
+impl ops::AddAssign<Expression> for Expression {
+    fn add_assign(&mut self, mut e: Expression) {
         self.terms.append(&mut e.terms);
         self.constant += e.constant;
-        self
     }
 }
 
@@ -522,8 +612,14 @@ impl ops::Neg for Expression {
 impl ops::Sub<f64> for Expression {
     type Output = Expression;
     fn sub(mut self, v: f64) -> Expression {
-        self.constant -= v;
+        self -= v;
         self
+    }
+}
+
+impl ops::SubAssign<f64> for Expression {
+    fn sub_assign(&mut self, v: f64) {
+        self.constant -= v;
     }
 }
 
@@ -531,6 +627,12 @@ impl ops::Sub<f32> for Expression {
     type Output = Expression;
     fn sub(self, v: f32) -> Expression {
         self.sub(v as f64)
+    }
+}
+
+impl ops::SubAssign<f32> for Expression {
+    fn sub_assign(&mut self, v: f32) {
+        self.sub_assign(v as f64)
     }
 }
 
@@ -552,10 +654,16 @@ impl ops::Sub<Expression> for f32 {
 
 impl ops::Sub<Expression> for Expression {
     type Output = Expression;
-    fn sub(mut self, mut e: Expression) -> Expression {
+    fn sub(mut self, e: Expression) -> Expression {
+        self -= e;
+        self
+    }
+}
+
+impl ops::SubAssign<Expression> for Expression {
+    fn sub_assign(&mut self, mut e: Expression) {
         e.negate();
         self.terms.append(&mut e.terms);
         self.constant += e.constant;
-        self
     }
 }
