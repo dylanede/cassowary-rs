@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="generator" content="rustdoc">
+    <meta name="description" content="API documentation for the Rust `cassowary` crate.">
+    <meta name="keywords" content="rust, rustlang, rust-lang, cassowary">
+
+    <title>cassowary - Rust</title>
+
+    <link rel="stylesheet" type="text/css" href="../normalize.css">
+    <link rel="stylesheet" type="text/css" href="../rustdoc.css"
+          id="mainThemeStyle">
+    
+    <link rel="stylesheet" type="text/css" href="../dark.css">
+    <link rel="stylesheet" type="text/css" href="../light.css" id="themeStyle">
+    <script src="../storage.js"></script>
+    
+
+    
+    
+</head>
+<body class="rustdoc mod">
+    <!--[if lte IE 8]>
+    <div class="warning">
+        This old browser is unsupported and will most likely display funky
+        things.
+    </div>
+    <![endif]-->
+
+    
+
+    <nav class="sidebar">
+        <div class="sidebar-menu">&#9776;</div>
+        
+        <p class='location'>Crate cassowary</p><div class="sidebar-elems"><div class="block items"><ul><li><a href="#modules">Modules</a></li><li><a href="#structs">Structs</a></li><li><a href="#enums">Enums</a></li></ul></div><p class='location'></p><script>window.sidebarCurrent = {name: 'cassowary', ty: 'mod', relpath: '../'};</script></div>
+    </nav>
+
+    <div class="theme-picker">
+        <button id="theme-picker" aria-label="Pick another theme!">
+            <img src="../brush.svg" width="18" alt="Pick another theme!">
+        </button>
+        <div id="theme-choices"></div>
+    </div>
+    <script src="../theme.js"></script>
+    <nav class="sub">
+        <form class="search-form js-only">
+            <div class="search-container">
+                <input class="search-input" name="search"
+                       autocomplete="off"
+                       placeholder="Click or press ‘S’ to search, ‘?’ for more options…"
+                       type="search">
+            </div>
+        </form>
+    </nav>
+
+    <section id='main' class="content"><h1 class='fqn'><span class='in-band'>Crate <a class="mod" href=''>cassowary</a></span><span class='out-of-band'><span id='render-detail'>
+                   <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
+                       [<span class='inner'>&#x2212;</span>]
+                   </a>
+               </span><a class='srclink' href='../src/cassowary/lib.rs.html#1-623' title='goto source code'>[src]</a></span></h1><div class='docblock'><p>This crate contains an implementation of the Cassowary constraint solving algorithm, based upon the work by
+G.J. Badros et al. in 2001. This algorithm is designed primarily for use constraining elements in user interfaces.
+Constraints are linear combinations of the problem variables. The notable features of Cassowary that make it
+ideal for user interfaces are that it is incremental (i.e. you can add and remove constraints at runtime
+and it will perform the minimum work to update the result) and that the constraints can be violated if
+necessary,
+with the order in which they are violated specified by setting a &quot;strength&quot; for each constraint.
+This allows the solution to gracefully degrade, which is useful for when a
+user interface needs to compromise on its constraints in order to still be able to display something.</p>
+<h2 id="constraint-syntax" class="section-header"><a href="#constraint-syntax">Constraint syntax</a></h2>
+<p>This crate aims to provide syntax for describing linear constraints as naturally as possible, within
+the limitations of Rust's type system. Generally you can write constraints as you would naturally, however
+the operator symbol (for greater-than, less-than, equals) is replaced with an instance of the
+<code>WeightedRelation</code> enum wrapped in &quot;pipe brackets&quot;.</p>
+<p>For example, for the constraint
+<code>(a + b) * 2 + c &gt;= d + 1</code> with strength <code>s</code>, the code to use is</p>
+
+<div class='information'><div class='tooltip ignore'>ⓘ<span class='tooltiptext'>This example is not tested</span></div></div><pre class="rust rust-example-rendered ignore">
+(<span class="ident">a</span> <span class="op">+</span> <span class="ident">b</span>) <span class="op">*</span> <span class="number">2.0</span> <span class="op">+</span> <span class="ident">c</span> <span class="op">|</span><span class="ident">GE</span>(<span class="ident">s</span>)<span class="op">|</span> <span class="ident">d</span> <span class="op">+</span> <span class="number">1.0</span></pre>
+<h1 id="a-simple-example" class="section-header"><a href="#a-simple-example">A simple example</a></h1>
+<p>Imagine a layout consisting of two elements laid out horizontally. For small window widths the elements
+should compress to fit, but if there is enough space they should display at their preferred widths. The
+first element will align to the left, and the second to the right. For  this example we will ignore
+vertical layout.</p>
+<p>First we need to include the relevant parts of <code>cassowary</code>:</p>
+
+<pre class="rust rust-example-rendered">
+<span class="kw">use</span> <span class="ident">cassowary</span>::{ <span class="ident">Solver</span>, <span class="ident">Variable</span> };
+<span class="kw">use</span> <span class="ident">cassowary</span>::<span class="ident">WeightedRelation</span>::<span class="kw-2">*</span>;
+<span class="kw">use</span> <span class="ident">cassowary</span>::<span class="ident">strength</span>::{ <span class="ident">WEAK</span>, <span class="ident">MEDIUM</span>, <span class="ident">STRONG</span>, <span class="ident">REQUIRED</span> };</pre>
+<p>And we'll construct some conveniences for pretty printing (which should hopefully be self-explanatory):</p>
+
+<div class='information'><div class='tooltip ignore'>ⓘ<span class='tooltiptext'>This example is not tested</span></div></div><pre class="rust rust-example-rendered ignore">
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">collections</span>::<span class="ident">HashMap</span>;
+<span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">names</span> <span class="op">=</span> <span class="ident">HashMap</span>::<span class="ident">new</span>();
+<span class="kw">fn</span> <span class="ident">print_changes</span>(<span class="ident">names</span>: <span class="kw-2">&amp;</span><span class="ident">HashMap</span><span class="op">&lt;</span><span class="ident">Variable</span>, <span class="kw-2">&amp;</span><span class="lifetime">&#39;static</span> <span class="ident">str</span><span class="op">&gt;</span>, <span class="ident">changes</span>: <span class="kw-2">&amp;</span>[(<span class="ident">Variable</span>, <span class="ident">f64</span>)]) {
+    <span class="macro">println</span><span class="macro">!</span>(<span class="string">&quot;Changes:&quot;</span>);
+    <span class="kw">for</span> <span class="kw-2">&amp;</span>(<span class="kw-2">ref</span> <span class="ident">var</span>, <span class="kw-2">ref</span> <span class="ident">val</span>) <span class="kw">in</span> <span class="ident">changes</span> {
+        <span class="macro">println</span><span class="macro">!</span>(<span class="string">&quot;{}: {}&quot;</span>, <span class="ident">names</span>[<span class="ident">var</span>], <span class="ident">val</span>);
+    }
+}</pre>
+<p>Let's define the variables required - the left and right edges of the elements, and the width of the window.</p>
+
+<div class='information'><div class='tooltip ignore'>ⓘ<span class='tooltiptext'>This example is not tested</span></div></div><pre class="rust rust-example-rendered ignore">
+<span class="kw">let</span> <span class="ident">window_width</span> <span class="op">=</span> <span class="ident">Variable</span>::<span class="ident">new</span>();
+<span class="ident">names</span>.<span class="ident">insert</span>(<span class="ident">window_width</span>, <span class="string">&quot;window_width&quot;</span>);
+
+<span class="kw">struct</span> <span class="ident">Element</span> {
+    <span class="ident">left</span>: <span class="ident">Variable</span>,
+    <span class="ident">right</span>: <span class="ident">Variable</span>
+}
+<span class="kw">let</span> <span class="ident">box1</span> <span class="op">=</span> <span class="ident">Element</span> {
+    <span class="ident">left</span>: <span class="ident">Variable</span>::<span class="ident">new</span>(),
+    <span class="ident">right</span>: <span class="ident">Variable</span>::<span class="ident">new</span>()
+};
+<span class="ident">names</span>.<span class="ident">insert</span>(<span class="ident">box1</span>.<span class="ident">left</span>, <span class="string">&quot;box1.left&quot;</span>);
+<span class="ident">names</span>.<span class="ident">insert</span>(<span class="ident">box1</span>.<span class="ident">right</span>, <span class="string">&quot;box1.right&quot;</span>);
+
+<span class="kw">let</span> <span class="ident">box2</span> <span class="op">=</span> <span class="ident">Element</span> {
+    <span class="ident">left</span>: <span class="ident">Variable</span>::<span class="ident">new</span>(),
+    <span class="ident">right</span>: <span class="ident">Variable</span>::<span class="ident">new</span>()
+};
+<span class="ident">names</span>.<span class="ident">insert</span>(<span class="ident">box2</span>.<span class="ident">left</span>, <span class="string">&quot;box2.left&quot;</span>);
+<span class="ident">names</span>.<span class="ident">insert</span>(<span class="ident">box2</span>.<span class="ident">right</span>, <span class="string">&quot;box2.right&quot;</span>);</pre>
+<p>Now to set up the solver and constraints.</p>
+
+<div class='information'><div class='tooltip ignore'>ⓘ<span class='tooltiptext'>This example is not tested</span></div></div><pre class="rust rust-example-rendered ignore">
+<span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">solver</span> <span class="op">=</span> <span class="ident">Solver</span>::<span class="ident">new</span>();
+<span class="ident">solver</span>.<span class="ident">add_constraints</span>(<span class="kw-2">&amp;</span>[<span class="ident">window_width</span> <span class="op">|</span><span class="ident">GE</span>(<span class="ident">REQUIRED</span>)<span class="op">|</span> <span class="number">0.0</span>, <span class="comment">// positive window width</span>
+                         <span class="ident">box1</span>.<span class="ident">left</span> <span class="op">|</span><span class="ident">EQ</span>(<span class="ident">REQUIRED</span>)<span class="op">|</span> <span class="number">0.0</span>, <span class="comment">// left align</span>
+                         <span class="ident">box2</span>.<span class="ident">right</span> <span class="op">|</span><span class="ident">EQ</span>(<span class="ident">REQUIRED</span>)<span class="op">|</span> <span class="ident">window_width</span>, <span class="comment">// right align</span>
+                         <span class="ident">box2</span>.<span class="ident">left</span> <span class="op">|</span><span class="ident">GE</span>(<span class="ident">REQUIRED</span>)<span class="op">|</span> <span class="ident">box1</span>.<span class="ident">right</span>, <span class="comment">// no overlap</span>
+                         <span class="comment">// positive widths</span>
+                         <span class="ident">box1</span>.<span class="ident">left</span> <span class="op">|</span><span class="ident">LE</span>(<span class="ident">REQUIRED</span>)<span class="op">|</span> <span class="ident">box1</span>.<span class="ident">right</span>,
+                         <span class="ident">box2</span>.<span class="ident">left</span> <span class="op">|</span><span class="ident">LE</span>(<span class="ident">REQUIRED</span>)<span class="op">|</span> <span class="ident">box2</span>.<span class="ident">right</span>,
+                         <span class="comment">// preferred widths:</span>
+                         <span class="ident">box1</span>.<span class="ident">right</span> <span class="op">-</span> <span class="ident">box1</span>.<span class="ident">left</span> <span class="op">|</span><span class="ident">EQ</span>(<span class="ident">WEAK</span>)<span class="op">|</span> <span class="number">50.0</span>,
+                         <span class="ident">box2</span>.<span class="ident">right</span> <span class="op">-</span> <span class="ident">box2</span>.<span class="ident">left</span> <span class="op">|</span><span class="ident">EQ</span>(<span class="ident">WEAK</span>)<span class="op">|</span> <span class="number">100.0</span>]).<span class="ident">unwrap</span>();</pre>
+<p>The window width is currently free to take any positive value. Let's constrain it to a particular value.
+Since for this example we will repeatedly change the window width, it is most efficient to use an
+&quot;edit variable&quot;, instead of repeatedly removing and adding constraints (note that for efficiency
+reasons we cannot edit a normal constraint that has been added to the solver).</p>
+
+<div class='information'><div class='tooltip ignore'>ⓘ<span class='tooltiptext'>This example is not tested</span></div></div><pre class="rust rust-example-rendered ignore">
+<span class="ident">solver</span>.<span class="ident">add_edit_variable</span>(<span class="ident">window_width</span>, <span class="ident">STRONG</span>).<span class="ident">unwrap</span>();
+<span class="ident">solver</span>.<span class="ident">suggest_value</span>(<span class="ident">window_width</span>, <span class="number">300.0</span>).<span class="ident">unwrap</span>();</pre>
+<p>This value of 300 is enough to fit both boxes in with room to spare, so let's check that this is the case.
+We can fetch a list of changes to the values of variables in the solver. Using the pretty printer defined
+earlier we can see what values our variables now hold.</p>
+
+<div class='information'><div class='tooltip ignore'>ⓘ<span class='tooltiptext'>This example is not tested</span></div></div><pre class="rust rust-example-rendered ignore">
+<span class="ident">print_changes</span>(<span class="kw-2">&amp;</span><span class="ident">names</span>, <span class="ident">solver</span>.<span class="ident">fetch_changes</span>());</pre>
+<p>This should print (in a possibly different order):</p>
+
+<div class='information'><div class='tooltip ignore'>ⓘ<span class='tooltiptext'>This example is not tested</span></div></div><pre class="rust rust-example-rendered ignore">
+<span class="ident">Changes</span>:
+<span class="ident">window_width</span>: <span class="number">300</span>
+<span class="ident">box1</span>.<span class="ident">right</span>: <span class="number">50</span>
+<span class="ident">box2</span>.<span class="ident">left</span>: <span class="number">200</span>
+<span class="ident">box2</span>.<span class="ident">right</span>: <span class="number">300</span></pre>
+<p>Note that the value of <code>box1.left</code> is not mentioned. This is because <code>solver.fetch_changes</code> only lists
+<em>changes</em> to variables, and since each variable starts in the solver with a value of zero, any values that
+have not changed from zero will not be reported.</p>
+<p>Now let's try compressing the window so that the boxes can't take up their preferred widths.</p>
+
+<div class='information'><div class='tooltip ignore'>ⓘ<span class='tooltiptext'>This example is not tested</span></div></div><pre class="rust rust-example-rendered ignore">
+<span class="ident">solver</span>.<span class="ident">suggest_value</span>(<span class="ident">window_width</span>, <span class="number">75.0</span>);
+<span class="ident">print_changes</span>(<span class="kw-2">&amp;</span><span class="ident">names</span>, <span class="ident">solver</span>.<span class="ident">fetch_changes</span>);</pre>
+<p>Now the solver can't satisfy all of the constraints. It will pick at least one of the weakest constraints to
+violate. In this case it will be one or both of the preferred widths. For efficiency reasons this is picked
+nondeterministically, so there are two possible results. This could be</p>
+
+<div class='information'><div class='tooltip ignore'>ⓘ<span class='tooltiptext'>This example is not tested</span></div></div><pre class="rust rust-example-rendered ignore">
+<span class="ident">Changes</span>:
+<span class="ident">window_width</span>: <span class="number">75</span>
+<span class="ident">box1</span>.<span class="ident">right</span>: <span class="number">0</span>
+<span class="ident">box2</span>.<span class="ident">left</span>: <span class="number">0</span>
+<span class="ident">box2</span>.<span class="ident">right</span>: <span class="number">75</span></pre>
+<p>or</p>
+
+<div class='information'><div class='tooltip ignore'>ⓘ<span class='tooltiptext'>This example is not tested</span></div></div><pre class="rust rust-example-rendered ignore">
+<span class="ident">Changes</span>:
+<span class="ident">window_width</span>: <span class="number">75</span>
+<span class="ident">box2</span>.<span class="ident">left</span>: <span class="number">50</span>
+<span class="ident">box2</span>.<span class="ident">right</span>: <span class="number">75</span></pre>
+<p>Due to the nature of the algorithm, &quot;in-between&quot; solutions, although just as valid, are not picked.</p>
+<p>In a user interface this is not likely a result we would prefer. The solution is to add another constraint
+to control the behaviour when the preferred widths cannot both be satisfied. In this example we are going
+to constrain the boxes to try to maintain a ratio between their widths.</p>
+
+<pre class="rust rust-example-rendered">
+<span class="ident">solver</span>.<span class="ident">add_constraint</span>(
+    (<span class="ident">box1</span>.<span class="ident">right</span> <span class="op">-</span> <span class="ident">box1</span>.<span class="ident">left</span>) <span class="op">/</span> <span class="number">50.0</span> <span class="op">|</span><span class="ident">EQ</span>(<span class="ident">MEDIUM</span>)<span class="op">|</span> (<span class="ident">box2</span>.<span class="ident">right</span> <span class="op">-</span> <span class="ident">box2</span>.<span class="ident">left</span>) <span class="op">/</span> <span class="number">100.0</span>
+    ).<span class="ident">unwrap</span>();
+<span class="ident">print_changes</span>(<span class="kw-2">&amp;</span><span class="ident">names</span>, <span class="ident">solver</span>.<span class="ident">fetch_changes</span>());</pre>
+<p>Now the result gives values that maintain the ratio between the sizes of the two boxes:</p>
+
+<div class='information'><div class='tooltip ignore'>ⓘ<span class='tooltiptext'>This example is not tested</span></div></div><pre class="rust rust-example-rendered ignore">
+<span class="ident">Changes</span>:
+<span class="ident">box1</span>.<span class="ident">right</span>: <span class="number">25</span>
+<span class="ident">box2</span>.<span class="ident">left</span>: <span class="number">25</span></pre>
+<p>This example may have appeared somewhat contrived, but hopefully it shows the power of the cassowary
+algorithm for laying out user interfaces.</p>
+<p>One thing that this example exposes is that this crate is a rather low level library. It does not have
+any inherent knowledge of user interfaces, directions or boxes. Thus for use in a user interface this
+crate should ideally be wrapped by a higher level API, which is outside the scope of this crate.</p>
+</div><h2 id='modules' class='section-header'><a href="#modules">Modules</a></h2>
+<table>
+                       <tr class=' module-item'>
+                           <td><a class="mod" href="strength/index.html"
+                                  title='mod cassowary::strength'>strength</a></td>
+                           <td class='docblock-short'>
+                                <p>Contains useful constants and functions for producing strengths for use in the constraint solver.
+Each constraint added to the solver has an associated strength specifying the precedence the solver should
+impose when choosing which constraints to enforce. It will try to enforce all constraints, but if that
+is impossible the lowest strength constraints are the first to be violated.</p>
+
+                           </td>
+                       </tr></table><h2 id='structs' class='section-header'><a href="#structs">Structs</a></h2>
+<table>
+                       <tr class=' module-item'>
+                           <td><a class="struct" href="struct.Constraint.html"
+                                  title='struct cassowary::Constraint'>Constraint</a></td>
+                           <td class='docblock-short'>
+                                <p>A constraint, consisting of an equation governed by an expression and a relational operator,
+and an associated strength.</p>
+
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class="struct" href="struct.Expression.html"
+                                  title='struct cassowary::Expression'>Expression</a></td>
+                           <td class='docblock-short'>
+                                <p>An expression that can be the left hand or right hand side of a constraint equation.
+It is a linear combination of variables, i.e. a sum of variables weighted by coefficients, plus an optional constant.</p>
+
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class="struct" href="struct.PartialConstraint.html"
+                                  title='struct cassowary::PartialConstraint'>PartialConstraint</a></td>
+                           <td class='docblock-short'>
+                                <p>This is an intermediate type used in the syntactic sugar for specifying constraints. You should not use it
+directly.</p>
+
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class="struct" href="struct.Solver.html"
+                                  title='struct cassowary::Solver'>Solver</a></td>
+                           <td class='docblock-short'>
+                                <p>A constraint solver using the Cassowary algorithm. For proper usage please see the top level crate documentation.</p>
+
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class="struct" href="struct.Term.html"
+                                  title='struct cassowary::Term'>Term</a></td>
+                           <td class='docblock-short'>
+                                <p>A variable and a coefficient to multiply that variable by. This is a sub-expression in
+a constraint equation.</p>
+
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class="struct" href="struct.Variable.html"
+                                  title='struct cassowary::Variable'>Variable</a></td>
+                           <td class='docblock-short'>
+                                <p>Identifies a variable for the constraint solver.
+Each new variable is unique in the view of the solver, but copying or cloning the variable produces
+a copy of the same variable.</p>
+
+                           </td>
+                       </tr></table><h2 id='enums' class='section-header'><a href="#enums">Enums</a></h2>
+<table>
+                       <tr class=' module-item'>
+                           <td><a class="enum" href="enum.AddConstraintError.html"
+                                  title='enum cassowary::AddConstraintError'>AddConstraintError</a></td>
+                           <td class='docblock-short'>
+                                <p>The possible error conditions that <code>Solver::add_constraint</code> can fail with.</p>
+
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class="enum" href="enum.AddEditVariableError.html"
+                                  title='enum cassowary::AddEditVariableError'>AddEditVariableError</a></td>
+                           <td class='docblock-short'>
+                                <p>The possible error conditions that <code>Solver::add_edit_variable</code> can fail with.</p>
+
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class="enum" href="enum.RelationalOperator.html"
+                                  title='enum cassowary::RelationalOperator'>RelationalOperator</a></td>
+                           <td class='docblock-short'>
+                                <p>The possible relations that a constraint can specify.</p>
+
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class="enum" href="enum.RemoveConstraintError.html"
+                                  title='enum cassowary::RemoveConstraintError'>RemoveConstraintError</a></td>
+                           <td class='docblock-short'>
+                                <p>The possible error conditions that <code>Solver::remove_constraint</code> can fail with.</p>
+
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class="enum" href="enum.RemoveEditVariableError.html"
+                                  title='enum cassowary::RemoveEditVariableError'>RemoveEditVariableError</a></td>
+                           <td class='docblock-short'>
+                                <p>The possible error conditions that <code>Solver::remove_edit_variable</code> can fail with.</p>
+
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class="enum" href="enum.SuggestValueError.html"
+                                  title='enum cassowary::SuggestValueError'>SuggestValueError</a></td>
+                           <td class='docblock-short'>
+                                <p>The possible error conditions that <code>Solver::suggest_value</code> can fail with.</p>
+
+                           </td>
+                       </tr>
+                       <tr class=' module-item'>
+                           <td><a class="enum" href="enum.WeightedRelation.html"
+                                  title='enum cassowary::WeightedRelation'>WeightedRelation</a></td>
+                           <td class='docblock-short'>
+                                <p>This is part of the syntactic sugar used for specifying constraints. This enum should be used as part of a
+constraint expression. See the module documentation for more information.</p>
+
+                           </td>
+                       </tr></table></section>
+    <section id='search' class="content hidden"></section>
+
+    <section class="footer"></section>
+
+    <aside id="help" class="hidden">
+        <div>
+            <h1 class="hidden">Help</h1>
+
+            <div class="shortcuts">
+                <h2>Keyboard Shortcuts</h2>
+
+                <dl>
+                    <dt><kbd>?</kbd></dt>
+                    <dd>Show this help dialog</dd>
+                    <dt><kbd>S</kbd></dt>
+                    <dd>Focus the search field</dd>
+                    <dt><kbd>↑</kbd></dt>
+                    <dd>Move up in search results</dd>
+                    <dt><kbd>↓</kbd></dt>
+                    <dd>Move down in search results</dd>
+                    <dt><kbd>↹</kbd></dt>
+                    <dd>Switch tab</dd>
+                    <dt><kbd>&#9166;</kbd></dt>
+                    <dd>Go to active search result</dd>
+                    <dt><kbd>+</kbd></dt>
+                    <dd>Expand all sections</dd>
+                    <dt><kbd>-</kbd></dt>
+                    <dd>Collapse all sections</dd>
+                </dl>
+            </div>
+
+            <div class="infos">
+                <h2>Search Tricks</h2>
+
+                <p>
+                    Prefix searches with a type followed by a colon (e.g.
+                    <code>fn:</code>) to restrict the search to a given type.
+                </p>
+
+                <p>
+                    Accepted types are: <code>fn</code>, <code>mod</code>,
+                    <code>struct</code>, <code>enum</code>,
+                    <code>trait</code>, <code>type</code>, <code>macro</code>,
+                    and <code>const</code>.
+                </p>
+
+                <p>
+                    Search functions by type signature (e.g.
+                    <code>vec -> usize</code> or <code>* -> vec</code>)
+                </p>
+            </div>
+        </div>
+    </aside>
+
+    
+
+    <script>
+        window.rootPath = "../";
+        window.currentCrate = "cassowary";
+    </script>
+    <script src="../main.js"></script>
+    <script defer src="../search-index.js"></script>
+</body>
+</html>
