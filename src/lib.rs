@@ -225,10 +225,15 @@
 //! One thing that this example exposes is that this crate is a rather low level library. It does not have
 //! any inherent knowledge of user interfaces, directions or boxes. Thus for use in a user interface this
 //! crate should ideally be wrapped by a higher level API, which is outside the scope of this crate.
+pub use error::{AddConstraintError, RemoveConstraintError, AddEditVariableError, 
+                RemoveEditVariableError, SuggestValueError};
+pub use solver_impl::Solver;
+
 use std::sync::Arc;
 use std::collections::HashMap;
 use std::collections::hash_map::{Entry};
 
+mod error;
 mod solver_impl;
 mod operators;
 
@@ -566,58 +571,4 @@ impl Row {
     }
 }
 
-/// The possible error conditions that `Solver::add_constraint` can fail with.
-#[derive(Debug, Copy, Clone)]
-pub enum AddConstraintError {
-    /// The constraint specified has already been added to the solver.
-    DuplicateConstraint,
-    /// The constraint is required, but it is unsatisfiable in conjunction with the existing constraints.
-    UnsatisfiableConstraint,
-    /// The solver entered an invalid state. If this occurs please report the issue. This variant specifies
-    /// additional details as a string.
-    InternalSolverError(&'static str)
-}
 
-/// The possible error conditions that `Solver::remove_constraint` can fail with.
-#[derive(Debug, Copy, Clone)]
-pub enum RemoveConstraintError {
-    /// The constraint specified was not already in the solver, so cannot be removed.
-    UnknownConstraint,
-    /// The solver entered an invalid state. If this occurs please report the issue. This variant specifies
-    /// additional details as a string.
-    InternalSolverError(&'static str)
-}
-
-/// The possible error conditions that `Solver::add_edit_variable` can fail with.
-#[derive(Debug, Copy, Clone)]
-pub enum AddEditVariableError {
-    /// The specified variable is already marked as an edit variable in the solver.
-    DuplicateEditVariable,
-    /// The specified strength was `REQUIRED`. This is illegal for edit variable strengths.
-    BadRequiredStrength
-}
-
-/// The possible error conditions that `Solver::remove_edit_variable` can fail with.
-#[derive(Debug, Copy, Clone)]
-pub enum RemoveEditVariableError {
-    /// The specified variable was not an edit variable in the solver, so cannot be removed.
-    UnknownEditVariable,
-    /// The solver entered an invalid state. If this occurs please report the issue. This variant specifies
-    /// additional details as a string.
-    InternalSolverError(&'static str)
-}
-
-/// The possible error conditions that `Solver::suggest_value` can fail with.
-#[derive(Debug, Copy, Clone)]
-pub enum SuggestValueError {
-    /// The specified variable was not an edit variable in the solver, so cannot have its value suggested.
-    UnknownEditVariable,
-    /// The solver entered an invalid state. If this occurs please report the issue. This variant specifies
-    /// additional details as a string.
-    InternalSolverError(&'static str)
-}
-
-#[derive(Debug, Copy, Clone)]
-struct InternalSolverError(&'static str);
-
-pub use solver_impl::Solver;
