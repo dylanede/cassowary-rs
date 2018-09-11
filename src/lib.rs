@@ -235,8 +235,9 @@ mod operators;
 static VARIABLE_ID: ::std::sync::atomic::AtomicUsize = ::std::sync::atomic::ATOMIC_USIZE_INIT;
 
 /// Identifies a variable for the constraint solver.
-/// Each new variable is unique in the view of the solver, but copying or cloning the variable produces
-/// a copy of the same variable.
+/// 
+/// Each new variable is unique, identified by an internal key. Copying or
+/// cloning the variable produces a copy of the same variable.
 #[derive(Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct Variable(usize);
 
@@ -244,6 +245,23 @@ impl Variable {
     /// Produces a new unique variable for use in constraint solving.
     pub fn new() -> Variable {
         Variable(VARIABLE_ID.fetch_add(1, ::std::sync::atomic::Ordering::Relaxed))
+    }
+    
+    /// An alternative to `new` which constructs a `Variable` with a
+    /// user-defined key.
+    /// 
+    /// Warning: when using this function, it is up to the user to ensure that
+    /// each distinct variable gets a distinct key. It is advisable not to mix
+    /// usage of this function with `Variable::new`, or at least to avoid
+    /// specifying any keys near zero when using this function.
+    pub fn from_usize(key: usize) -> Variable {
+        Variable(key)
+    }
+}
+
+impl From<Variable> for usize {
+    fn from(v: Variable) -> usize {
+        v.0
     }
 }
 
