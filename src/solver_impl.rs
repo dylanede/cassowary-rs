@@ -22,12 +22,14 @@ use ::std::collections::{ HashMap, HashSet };
 use ::std::collections::hash_map::Entry;
 
 #[derive(Copy, Clone)]
+#[derive(Debug)]
 struct Tag {
     marker: Symbol,
     other: Symbol
 }
 
 #[derive(Clone)]
+#[derive(Debug)]
 struct EditInfo {
     tag: Tag,
     constraint: Constraint,
@@ -35,6 +37,7 @@ struct EditInfo {
 }
 
 /// A constraint solver using the Cassowary algorithm. For proper usage please see the top level crate documentation.
+#[derive(Debug)]
 pub struct Solver {
     cns: HashMap<Constraint, Tag>,
     var_data: HashMap<Variable, (f64, Symbol, usize)>,
