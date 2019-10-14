@@ -235,8 +235,9 @@ mod operators;
 static VARIABLE_ID: ::std::sync::atomic::AtomicUsize = ::std::sync::atomic::ATOMIC_USIZE_INIT;
 
 /// Identifies a variable for the constraint solver.
-/// Each new variable is unique in the view of the solver, but copying or cloning the variable produces
-/// a copy of the same variable.
+/// 
+/// Each new variable is unique, identified by an internal key. Copying or
+/// cloning the variable produces a copy of the same variable.
 #[derive(Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct Variable(usize);
 
@@ -244,6 +245,23 @@ impl Variable {
     /// Produces a new unique variable for use in constraint solving.
     pub fn new() -> Variable {
         Variable(VARIABLE_ID.fetch_add(1, ::std::sync::atomic::Ordering::Relaxed))
+    }
+    
+    /// An alternative to `new` which constructs a `Variable` with a
+    /// user-defined key.
+    /// 
+    /// Warning: when using this function, it is up to the user to ensure that
+    /// each distinct variable gets a distinct key. It is advisable not to mix
+    /// usage of this function with `Variable::new`, or at least to avoid
+    /// specifying any keys near zero when using this function.
+    pub fn from_usize(key: usize) -> Variable {
+        Variable(key)
+    }
+}
+
+impl From<Variable> for usize {
+    fn from(v: Variable) -> usize {
+        v.0
     }
 }
 
@@ -437,6 +455,7 @@ impl Eq for Constraint {}
 
 /// This is part of the syntactic sugar used for specifying constraints. This enum should be used as part of a
 /// constraint expression. See the module documentation for more information.
+#[derive(Debug)]
 pub enum WeightedRelation {
     /// `==`
     EQ(f64),
@@ -458,9 +477,11 @@ impl From<WeightedRelation> for (RelationalOperator, f64) {
 
 /// This is an intermediate type used in the syntactic sugar for specifying constraints. You should not use it
 /// directly.
+#[derive(Debug)]
 pub struct PartialConstraint(Expression, WeightedRelation);
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug)]
 enum SymbolType {
     Invalid,
     External,
@@ -470,6 +491,7 @@ enum SymbolType {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug)]
 struct Symbol(usize, SymbolType);
 
 impl Symbol {
@@ -478,6 +500,7 @@ impl Symbol {
 }
 
 #[derive(Clone)]
+#[derive(Debug)]
 struct Row {
     cells: HashMap<Symbol, f64>,
     constant: f64
