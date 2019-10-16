@@ -1,8 +1,8 @@
 use {
     Symbol,
+    Tag,
     SymbolType,
     Constraint,
-    Variable,
     Expression,
     Term,
     Row,
@@ -16,46 +16,46 @@ use {
     near_zero
 };
 
-use ::std::rc::Rc;
-use ::std::cell::RefCell;
-use ::std::collections::{ HashMap, HashSet };
-use ::std::collections::hash_map::Entry;
+use std::rc::Rc;
+use std::cell::RefCell;
+use std::collections::{ HashMap, HashSet };
+use std::hash::Hash;
+use std::fmt::Debug;
+use std::collections::hash_map::Entry;
 
-#[derive(Copy, Clone)]
-#[derive(Debug)]
-struct Tag {
-    marker: Symbol,
-    other: Symbol
-}
 
 #[derive(Clone)]
 #[derive(Debug)]
-struct EditInfo {
+struct EditInfo<T> {
     tag: Tag,
-    constraint: Constraint,
+    constraint: Constraint<T>,
     constant: f64
 }
 
 /// A constraint solver using the Cassowary algorithm. For proper usage please see the top level crate documentation.
 #[derive(Debug)]
-pub struct Solver {
-    cns: HashMap<Constraint, Tag>,
-    var_data: HashMap<Variable, (f64, Symbol, usize)>,
-    var_for_symbol: HashMap<Symbol, Variable>,
-    public_changes: Vec<(Variable, f64)>,
-    changed: HashSet<Variable>,
+pub struct Solver<T>
+where
+    T: Debug + Clone + Eq + Hash
+{
+    cns: HashMap<Constraint<T>, Tag>,
+    var_data: HashMap<T, (f64, Symbol, usize)>,
+    var_for_symbol: HashMap<Symbol, T>,
+    public_changes: Vec<(T, f64)>,
+    changed: HashSet<T>,
     should_clear_changes: bool,
     rows: HashMap<Symbol, Box<Row>>,
-    edits: HashMap<Variable, EditInfo>,
+    edits: HashMap<T, EditInfo<T>>,
     infeasible_rows: Vec<Symbol>, // never contains external symbols
     objective: Rc<RefCell<Row>>,
     artificial: Option<Rc<RefCell<Row>>>,
     id_tick: usize
 }
 
-impl Solver {
+impl<T: Debug + Clone + Eq + Hash> Solver<T>
+{
     /// Construct a new solver.
-    pub fn new() -> Solver {
+    pub fn new() -> Solver<T> {
         Solver {
             cns: HashMap::new(),
             var_data: HashMap::new(),
@@ -72,18 +72,18 @@ impl Solver {
         }
     }
 
-    pub fn add_constraints<'a, I: IntoIterator<Item = &'a Constraint>>(
+    pub fn add_constraints<I: IntoIterator<Item = Constraint<T>>>(
         &mut self,
         constraints: I) -> Result<(), AddConstraintError>
     {
         for constraint in constraints {
-            try!(self.add_constraint(constraint.clone()));
+            self.add_constraint(constraint)?;
         }
         Ok(())
     }
 
     /// Add a constraint to the solver.
-    pub fn add_constraint(&mut self, constraint: Constraint) -> Result<(), AddConstraintError> {
+    pub fn add_constraint(&mut self, constraint: Constraint<T>) -> Result<(), AddConstraintError> {
         if self.cns.contains_key(&constraint) {
             return Err(AddConstraintError::DuplicateConstraint);
         }
@@ -95,7 +95,7 @@ impl Solver {
         // constraints and since exceptional conditions are uncommon,
         // i'm not too worried about aggressive cleanup of the var map.
         let (mut row, tag) = self.create_row(&constraint);
-        let mut subject = Solver::choose_subject(&row, &tag);
+        let mut subject = Symbol::choose_subject(&row, &tag);
 
         // If chooseSubject could find a valid entering symbol, one
         // last option is available if the entire row is composed of
@@ -103,7 +103,7 @@ impl Solver {
         // this represents redundant constraints and the new dummy
         // marker can enter the basis. If the constant is non-zero,
         // then it represents an unsatisfiable constraint.
-        if subject.type_() == SymbolType::Invalid && Solver::all_dummies(&row) {
+        if subject.type_() == SymbolType::Invalid && row.all_dummies() {
             if !near_zero(row.constant) {
                 return Err(AddConstraintError::UnsatisfiableConstraint);
             } else {
@@ -123,7 +123,7 @@ impl Solver {
             row.solve_for_symbol(subject);
             self.substitute(subject, &row);
             if subject.type_() == SymbolType::External && row.constant != 0.0 {
-                let v = self.var_for_symbol[&subject];
+                let v:T = self.var_for_symbol[&subject].clone();
                 self.var_changed(v);
             }
             self.rows.insert(subject, row);
@@ -135,13 +135,13 @@ impl Solver {
         // aggregate work due to a smaller average system size. It
         // also ensures the solver remains in a consistent state.
         let objective = self.objective.clone();
-        try!(self.optimise(&objective).map_err(|e| AddConstraintError::InternalSolverError(e.0)));
+        self.optimise(&objective).map_err(|e| AddConstraintError::InternalSolverError(e.0))?;
         Ok(())
     }
 
     /// Remove a constraint from the solver.
-    pub fn remove_constraint(&mut self, constraint: &Constraint) -> Result<(), RemoveConstraintError> {
-        let tag = try!(self.cns.remove(constraint).ok_or(RemoveConstraintError::UnknownConstraint));
+    pub fn remove_constraint(&mut self, constraint: &Constraint<T>) -> Result<(), RemoveConstraintError> {
+        let tag = self.cns.remove(constraint).ok_or(RemoveConstraintError::UnknownConstraint)?;
 
         // Remove the error effects from the objective function
         // *before* pivoting, or substitutions into the objective
@@ -151,10 +151,13 @@ impl Solver {
         // If the marker is basic, simply drop the row. Otherwise,
         // pivot the marker into the basis and then drop the row.
         if let None = self.rows.remove(&tag.marker) {
-            let (leaving, mut row) = try!(self.get_marker_leaving_row(tag.marker)
-                                     .ok_or(
-                                         RemoveConstraintError::InternalSolverError(
-                                             "Failed to find leaving row.")));
+            let (leaving, mut row) =
+                self.get_marker_leaving_row(tag.marker)
+                .ok_or(
+                    RemoveConstraintError::InternalSolverError(
+                        "Failed to find leaving row."
+                    )
+                )?;
             row.solve_for_symbols(leaving, tag.marker);
             self.substitute(tag.marker, &row);
         }
@@ -163,7 +166,7 @@ impl Solver {
         // solver remains consistent. It makes the solver api easier to
         // use at a small tradeoff for speed.
         let objective = self.objective.clone();
-        try!(self.optimise(&objective).map_err(|e| RemoveConstraintError::InternalSolverError(e.0)));
+        self.optimise(&objective).map_err(|e| RemoveConstraintError::InternalSolverError(e.0))?;
 
         // Check for and decrease the reference count for variables referenced by the constraint
         // If the reference count is zero remove the variable from the variable map
@@ -184,7 +187,7 @@ impl Solver {
     }
 
     /// Test whether a constraint has been added to the solver.
-    pub fn has_constraint(&self, constraint: &Constraint) -> bool {
+    pub fn has_constraint(&self, constraint: &Constraint<T>) -> bool {
         self.cns.contains_key(constraint)
     }
 
@@ -192,7 +195,7 @@ impl Solver {
     ///
     /// This method should be called before the `suggest_value` method is
     /// used to supply a suggested value for the given edit variable.
-    pub fn add_edit_variable(&mut self, v: Variable, strength: f64) -> Result<(), AddEditVariableError> {
+    pub fn add_edit_variable(&mut self, v: T, strength: f64) -> Result<(), AddEditVariableError> {
         if self.edits.contains_key(&v) {
             return Err(AddEditVariableError::DuplicateEditVariable);
         }
@@ -213,7 +216,7 @@ impl Solver {
     }
 
     /// Remove an edit variable from the solver.
-    pub fn remove_edit_variable(&mut self, v: Variable) -> Result<(), RemoveEditVariableError> {
+    pub fn remove_edit_variable(&mut self, v: T) -> Result<(), RemoveEditVariableError> {
         if let Some(constraint) = self.edits.remove(&v).map(|e| e.constraint) {
             try!(self.remove_constraint(&constraint)
                  .map_err(|e| match e {
@@ -229,7 +232,7 @@ impl Solver {
     }
 
     /// Test whether an edit variable has been added to the solver.
-    pub fn has_edit_variable(&self, v: &Variable) -> bool {
+    pub fn has_edit_variable(&self, v: &T) -> bool {
         self.edits.contains_key(v)
     }
 
@@ -237,9 +240,9 @@ impl Solver {
     ///
     /// This method should be used after an edit variable has been added to
     /// the solver in order to suggest the value for that variable.
-    pub fn suggest_value(&mut self, variable: Variable, value: f64) -> Result<(), SuggestValueError> {
+    pub fn suggest_value(&mut self, variable: T, value: f64) -> Result<(), SuggestValueError> {
         let (info_tag_marker, info_tag_other, delta) = {
-            let info = try!(self.edits.get_mut(&variable).ok_or(SuggestValueError::UnknownEditVariable));
+            let info = self.edits.get_mut(&variable).ok_or(SuggestValueError::UnknownEditVariable)?;
             let delta = value - info.constant;
             info.constant = value;
             (info.tag.marker, info.tag.other, delta)
@@ -269,7 +272,7 @@ impl Solver {
                     let coeff = row.coefficient_for(info_tag_marker);
                     let diff = delta * coeff;
                     if diff != 0.0 && symbol.type_() == SymbolType::External {
-                        let v = self.var_for_symbol[symbol];
+                        let v = self.var_for_symbol[symbol].clone();
                         // inline var_changed - borrow checker workaround
                         if self.should_clear_changes {
                             self.changed.clear();
@@ -286,11 +289,11 @@ impl Solver {
                 }
             }
         }
-        try!(self.dual_optimise().map_err(|e| SuggestValueError::InternalSolverError(e.0)));
+        self.dual_optimise().map_err(|e| SuggestValueError::InternalSolverError(e.0))?;
         return Ok(());
     }
 
-    fn var_changed(&mut self, v: Variable) {
+    fn var_changed(&mut self, v: T) {
         if self.should_clear_changes {
             self.changed.clear();
             self.should_clear_changes = false;
@@ -302,7 +305,7 @@ impl Solver {
     ///
     /// The list of changes returned is not in a specific order. Each change comprises the variable changed and
     /// the new value of that variable.
-    pub fn fetch_changes(&mut self) -> &[(Variable, f64)] {
+    pub fn fetch_changes(&mut self) -> &[(T, f64)] {
         if self.should_clear_changes {
             self.changed.clear();
             self.should_clear_changes = false;
@@ -310,12 +313,12 @@ impl Solver {
             self.should_clear_changes = true;
         }
         self.public_changes.clear();
-        for &v in &self.changed {
+        for v in &self.changed {
             if let Some(var_data) = self.var_data.get_mut(&v) {
                 let new_value = self.rows.get(&var_data.1).map(|r| r.constant).unwrap_or(0.0);
                 let old_value = var_data.0;
                 if old_value != new_value {
-                    self.public_changes.push((v, new_value));
+                    self.public_changes.push((v.clone(), new_value));
                     var_data.0 = new_value;
                 }
             }
@@ -347,14 +350,14 @@ impl Solver {
     /// Get the symbol for the given variable.
     ///
     /// If a symbol does not exist for the variable, one will be created.
-    fn get_var_symbol(&mut self, v: Variable) -> Symbol {
+    fn get_var_symbol(&mut self, v: T) -> Symbol {
         let id_tick = &mut self.id_tick;
         let var_for_symbol = &mut self.var_for_symbol;
-        let value = self.var_data.entry(v).or_insert_with(|| {
+        let value = self.var_data.entry(v.clone()).or_insert_with(|| {
             let s = Symbol(*id_tick, SymbolType::External);
             var_for_symbol.insert(s, v);
             *id_tick += 1;
-            (::std::f64::NAN, s, 0)
+            (std::f64::NAN, s, 0)
         });
         value.2 += 1;
         value.1
@@ -375,13 +378,13 @@ impl Solver {
     ///
     /// The tag will be updated with the marker and error symbols to use
     /// for tracking the movement of the constraint in the tableau.
-    fn create_row(&mut self, constraint: &Constraint) -> (Box<Row>, Tag) {
+    fn create_row(&mut self, constraint: &Constraint<T>) -> (Box<Row>, Tag) {
         let expr = constraint.expr();
         let mut row = Row::new(expr.constant);
         // Substitute the current basic variables into the row.
         for term in &expr.terms {
             if !near_zero(term.coefficient) {
-                let symbol = self.get_var_symbol(term.variable);
+                let symbol = self.get_var_symbol(term.variable.clone());
                 if let Some(other_row) = self.rows.get(&symbol) {
                     row.insert_row(other_row, term.coefficient);
                 } else {
@@ -453,37 +456,6 @@ impl Solver {
         (Box::new(row), tag)
     }
 
-    /// Choose the subject for solving for the row.
-    ///
-    /// This method will choose the best subject for using as the solve
-    /// target for the row. An invalid symbol will be returned if there
-    /// is no valid target.
-    ///
-    /// The symbols are chosen according to the following precedence:
-    ///
-    /// 1) The first symbol representing an external variable.
-    /// 2) A negative slack or error tag variable.
-    ///
-    /// If a subject cannot be found, an invalid symbol will be returned.
-    fn choose_subject(row: &Row, tag: &Tag) -> Symbol {
-        for s in row.cells.keys() {
-            if s.type_() == SymbolType::External {
-                return *s
-            }
-        }
-        if tag.marker.type_() == SymbolType::Slack || tag.marker.type_() == SymbolType::Error {
-            if row.coefficient_for(tag.marker) < 0.0 {
-                return tag.marker;
-            }
-        }
-        if tag.other.type_() == SymbolType::Slack || tag.other.type_() == SymbolType::Error {
-            if row.coefficient_for(tag.other) < 0.0 {
-                return tag.other;
-            }
-        }
-        Symbol::invalid()
-    }
-
     /// Add the row to the tableau using an artificial variable.
     ///
     /// This will return false if the constraint cannot be satisfied.
@@ -497,7 +469,7 @@ impl Solver {
         // Optimize the artificial objective. This is successful
         // only if the artificial objective is optimized to zero.
         let artificial = self.artificial.as_ref().unwrap().clone();
-        try!(self.optimise(&artificial));
+        self.optimise(&artificial)?;
         let success = near_zero(artificial.borrow().constant);
         self.artificial = None;
 
@@ -507,7 +479,7 @@ impl Solver {
             if row.cells.is_empty() {
                 return Ok(success);
             }
-            let entering = Solver::any_pivotable_symbol(&row); // never External
+            let entering = row.any_pivotable_symbol(); // never External
             if entering.type_() == SymbolType::Invalid {
                 return Ok(false); // unsatisfiable (will this ever happen?)
             }
@@ -532,12 +504,12 @@ impl Solver {
         for (&other_symbol, other_row) in &mut self.rows {
             let constant_changed = other_row.substitute(symbol, row);
             if other_symbol.type_() == SymbolType::External && constant_changed {
-                let v = self.var_for_symbol[&other_symbol];
                 // inline var_changed
                 if self.should_clear_changes {
                     self.changed.clear();
                     self.should_clear_changes = false;
                 }
+                let v = self.var_for_symbol[&other_symbol].clone();
                 self.changed.insert(v);
             }
             if other_symbol.type_() != SymbolType::External && other_row.constant < 0.0 {
@@ -556,7 +528,7 @@ impl Solver {
     /// until the objective function reaches a minimum.
     fn optimise(&mut self, objective: &RefCell<Row>) -> Result<(), InternalSolverError> {
         loop {
-            let entering = Solver::get_entering_symbol(&objective.borrow());
+            let entering = objective.borrow().get_entering_symbol();
             if entering.type_() == SymbolType::Invalid {
                 return Ok(());
             }
@@ -566,7 +538,7 @@ impl Solver {
             row.solve_for_symbols(leaving, entering);
             self.substitute(entering, &row);
             if entering.type_() == SymbolType::External && row.constant != 0.0 {
-                let v = self.var_for_symbol[&entering];
+                let v = self.var_for_symbol[&entering].clone();
                 self.var_changed(v);
             }
             self.rows.insert(entering, row);
@@ -601,29 +573,13 @@ impl Solver {
                 row.solve_for_symbols(leaving, entering);
                 self.substitute(entering, &row);
                 if entering.type_() == SymbolType::External && row.constant != 0.0 {
-                    let v = self.var_for_symbol[&entering];
+                    let v = self.var_for_symbol[&entering].clone();
                     self.var_changed(v);
                 }
                 self.rows.insert(entering, row);
             }
         }
         Ok(())
-    }
-
-    /// Compute the entering variable for a pivot operation.
-    ///
-    /// This method will return first symbol in the objective function which
-    /// is non-dummy and has a coefficient less than zero. If no symbol meets
-    /// the criteria, it means the objective function is at a minimum, and an
-    /// invalid symbol is returned.
-    /// Could return an External symbol
-    fn get_entering_symbol(objective: &Row) -> Symbol {
-        for (symbol, value) in &objective.cells {
-            if symbol.type_() != SymbolType::Dummy && *value < 0.0 {
-                return *symbol;
-            }
-        }
-        Symbol::invalid()
     }
 
     /// Compute the entering symbol for the dual optimize operation.
@@ -636,7 +592,7 @@ impl Solver {
     /// Could return an External symbol
     fn get_dual_entering_symbol(&self, row: &Row) -> Symbol {
         let mut entering = Symbol::invalid();
-        let mut ratio = ::std::f64::INFINITY;
+        let mut ratio = std::f64::INFINITY;
         let objective = self.objective.borrow();
         for (symbol, value) in &row.cells {
             if *value > 0.0 && symbol.type_() != SymbolType::Dummy {
@@ -651,19 +607,6 @@ impl Solver {
         entering
     }
 
-    /// Get the first Slack or Error symbol in the row.
-    ///
-    /// If no such symbol is present, and Invalid symbol will be returned.
-    /// Never returns an External symbol
-    fn any_pivotable_symbol(row: &Row) -> Symbol {
-        for symbol in row.cells.keys() {
-            if symbol.type_() == SymbolType::Slack || symbol.type_() == SymbolType::Error {
-                return *symbol;
-            }
-        }
-        Symbol::invalid()
-    }
-
     /// Compute the row which holds the exit symbol for a pivot.
     ///
     /// This method will return an iterator to the row in the row map
@@ -672,7 +615,7 @@ impl Solver {
     /// the objective function is unbounded.
     /// Never returns a row for an External symbol
     fn get_leaving_row(&mut self, entering: Symbol) -> Option<(Symbol, Box<Row>)> {
-        let mut ratio = ::std::f64::INFINITY;
+        let mut ratio = std::f64::INFINITY;
         let mut found = None;
         for (symbol, row) in &self.rows {
             if symbol.type_() != SymbolType::External {
@@ -707,7 +650,7 @@ impl Solver {
     /// will be returned. This indicates an internal solver error since
     /// the marker *should* exist somewhere in the tableau.
     fn get_marker_leaving_row(&mut self, marker: Symbol) -> Option<(Symbol, Box<Row>)> {
-        let mut r1 = ::std::f64::INFINITY;
+        let mut r1 = std::f64::INFINITY;
         let mut r2 = r1;
         let mut first = None;
         let mut second = None;
@@ -738,7 +681,7 @@ impl Solver {
             .or(third)
             .and_then(|s| {
                 if s.type_() == SymbolType::External && self.rows[&s].constant != 0.0 {
-                    let v = self.var_for_symbol[&s];
+                    let v = self.var_for_symbol[&s].clone();
                     self.var_changed(v);
                 }
                 self.rows
@@ -748,7 +691,7 @@ impl Solver {
     }
 
     /// Remove the effects of a constraint on the objective function.
-    fn remove_constraint_effects(&mut self, cn: &Constraint, tag: &Tag) {
+    fn remove_constraint_effects(&mut self, cn: &Constraint<T>, tag: &Tag) {
         if tag.marker.type_() == SymbolType::Error {
             self.remove_marker_effects(tag.marker, cn.strength());
         } else if tag.other.type_() == SymbolType::Error {
@@ -765,21 +708,11 @@ impl Solver {
         }
     }
 
-    /// Test whether a row is composed of all dummy variables.
-    fn all_dummies(row: &Row) -> bool {
-        for symbol in row.cells.keys() {
-            if symbol.type_() != SymbolType::Dummy {
-                return false;
-            }
-        }
-        true
-    }
-
     /// Get the stored value for a variable.
     ///
     /// Normally values should be retrieved and updated using `fetch_changes`, but
     /// this method can be used for debugging or testing.
-    pub fn get_value(&self, v: Variable) -> f64 {
+    pub fn get_value(&self, v: T) -> f64 {
         self.var_data.get(&v).and_then(|s| {
             self.rows.get(&s.1).map(|r| r.constant)
         }).unwrap_or(0.0)

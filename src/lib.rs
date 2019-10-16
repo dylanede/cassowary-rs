@@ -190,16 +190,20 @@
 //! # names.insert(box2.left, "box2.left");
 //! # names.insert(box2.right, "box2.right");
 //! # let mut solver = Solver::new();
-//! # solver.add_constraints(&[window_width |GE(REQUIRED)| 0.0, // positive window width
-//! #                          box1.left |EQ(REQUIRED)| 0.0, // left align
-//! #                          box2.right |EQ(REQUIRED)| window_width, // right align
-//! #                          box2.left |GE(REQUIRED)| box1.right, // no overlap
-//! #                          // positive widths
-//! #                          box1.left |LE(REQUIRED)| box1.right,
-//! #                          box2.left |LE(REQUIRED)| box2.right,
-//! #                          // preferred widths:
-//! #                          box1.right - box1.left |EQ(WEAK)| 50.0,
-//! #                          box2.right - box2.left |EQ(WEAK)| 100.0]).unwrap();
+//! # solver
+//! #     .add_constraints(
+//! #         vec![window_width |GE(REQUIRED)| 0.0, // positive window width
+//! #              box1.left |EQ(REQUIRED)| 0.0, // left align
+//! #              box2.right |EQ(REQUIRED)| window_width, // right align
+//! #              box2.left |GE(REQUIRED)| box1.right, // no overlap
+//! #              // positive widths
+//! #              box1.left |LE(REQUIRED)| box1.right,
+//! #              box2.left |LE(REQUIRED)| box2.right,
+//! #              // preferred widths:
+//! #              box1.right - box1.left |EQ(WEAK)| 50.0,
+//! #              box2.right - box2.left |EQ(WEAK)| 100.0]
+//! #     )
+//! #     .unwrap();
 //! # solver.add_edit_variable(window_width, STRONG).unwrap();
 //! # solver.suggest_value(window_width, 300.0).unwrap();
 //! # print_changes(&names, solver.fetch_changes());
@@ -231,51 +235,20 @@ use std::collections::hash_map::{Entry};
 
 mod solver_impl;
 mod operators;
-
-static VARIABLE_ID: ::std::sync::atomic::AtomicUsize = ::std::sync::atomic::ATOMIC_USIZE_INIT;
-
-/// Identifies a variable for the constraint solver.
-/// 
-/// Each new variable is unique, identified by an internal key. Copying or
-/// cloning the variable produces a copy of the same variable.
-#[derive(Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct Variable(usize);
-
-impl Variable {
-    /// Produces a new unique variable for use in constraint solving.
-    pub fn new() -> Variable {
-        Variable(VARIABLE_ID.fetch_add(1, ::std::sync::atomic::Ordering::Relaxed))
-    }
-    
-    /// An alternative to `new` which constructs a `Variable` with a
-    /// user-defined key.
-    /// 
-    /// Warning: when using this function, it is up to the user to ensure that
-    /// each distinct variable gets a distinct key. It is advisable not to mix
-    /// usage of this function with `Variable::new`, or at least to avoid
-    /// specifying any keys near zero when using this function.
-    pub fn from_usize(key: usize) -> Variable {
-        Variable(key)
-    }
-}
-
-impl From<Variable> for usize {
-    fn from(v: Variable) -> usize {
-        v.0
-    }
-}
+mod variable;
+pub use variable::*;
 
 /// A variable and a coefficient to multiply that variable by. This is a sub-expression in
 /// a constraint equation.
 #[derive(Copy, Clone, Debug)]
-pub struct Term {
-    pub variable: Variable,
+pub struct Term<T> {
+    pub variable: T,
     pub coefficient: f64
 }
 
-impl Term {
+impl<T> Term<T> {
     /// Construct a new Term from a variable and a coefficient.
-    fn new(variable: Variable, coefficient: f64) -> Term {
+    fn new(variable: T, coefficient: f64) -> Term<T> {
         Term {
             variable: variable,
             coefficient: coefficient
@@ -286,14 +259,14 @@ impl Term {
 /// An expression that can be the left hand or right hand side of a constraint equation.
 /// It is a linear combination of variables, i.e. a sum of variables weighted by coefficients, plus an optional constant.
 #[derive(Clone, Debug)]
-pub struct Expression {
-    pub terms: Vec<Term>,
+pub struct Expression<T> {
+    pub terms: Vec<Term<T>>,
     pub constant: f64
 }
 
-impl Expression {
+impl<T: Clone> Expression<T> {
     /// Constructs an expression of the form _n_, where n is a constant real number, not a variable.
-    pub fn from_constant(v: f64) -> Expression {
+    pub fn from_constant(v: f64) -> Expression<T> {
         Expression {
             terms: Vec::new(),
             constant: v
@@ -301,14 +274,14 @@ impl Expression {
     }
     /// Constructs an expression from a single term. Forms an expression of the form _n x_
     /// where n is the coefficient, and x is the variable.
-    pub fn from_term(term: Term) -> Expression {
+    pub fn from_term(term: Term<T>) -> Expression<T> {
         Expression {
             terms: vec![term],
             constant: 0.0
         }
     }
     /// General constructor. Each `Term` in `terms` is part of the sum forming the expression, as well as `constant`.
-    pub fn new(terms: Vec<Term>, constant: f64) -> Expression {
+    pub fn new(terms: Vec<Term<T>>, constant: f64) -> Expression<T> {
         Expression {
             terms: terms,
             constant: constant
@@ -318,25 +291,20 @@ impl Expression {
     pub fn negate(&mut self) {
         self.constant = -self.constant;
         for t in &mut self.terms {
-            *t = -*t;
+            let t2 = t.clone();
+            *t = -t2;
         }
     }
 }
 
-impl From<f64> for Expression {
-    fn from(v: f64) -> Expression {
+impl<T: Clone> From<f64> for Expression<T> {
+    fn from(v: f64) -> Expression<T> {
         Expression::from_constant(v)
     }
 }
 
-impl From<Variable> for Expression {
-    fn from(v: Variable) -> Expression {
-        Expression::from_term(Term::new(v, 1.0))
-    }
-}
-
-impl From<Term> for Expression {
-    fn from(t: Term) -> Expression {
+impl<T: Clone> From<Term<T>> for Expression<T> {
+    fn from(t: Term<T>) -> Expression<T> {
         Expression::from_term(t)
     }
 }
@@ -401,8 +369,8 @@ impl std::fmt::Display for RelationalOperator {
 }
 
 #[derive(Debug)]
-struct ConstraintData {
-    expression: Expression,
+struct ConstraintData<T> {
+    expression: Expression<T>,
     strength: f64,
     op: RelationalOperator
 }
@@ -410,13 +378,13 @@ struct ConstraintData {
 /// A constraint, consisting of an equation governed by an expression and a relational operator,
 /// and an associated strength.
 #[derive(Clone, Debug)]
-pub struct Constraint(Arc<ConstraintData>);
+pub struct Constraint<T>(Arc<ConstraintData<T>>);
 
-impl Constraint {
+impl<T> Constraint<T> {
     /// Construct a new constraint from an expression, a relational operator and a strength.
     /// This corresponds to the equation `e op 0.0`, e.g. `x + y >= 0.0`. For equations with a non-zero
     /// right hand side, subtract it from the equation to give a zero right hand side.
-    pub fn new(e: Expression, op: RelationalOperator, strength: f64) -> Constraint {
+    pub fn new(e: Expression<T>, op: RelationalOperator, strength: f64) -> Constraint<T> {
         Constraint(Arc::new(ConstraintData {
             expression: e,
             op: op,
@@ -424,7 +392,7 @@ impl Constraint {
         }))
     }
     /// The expression of the left hand side of the constraint equation.
-    pub fn expr(&self) -> &Expression {
+    pub fn expr(&self) -> &Expression<T> {
         &self.0.expression
     }
     /// The relational operator governing the constraint.
@@ -437,21 +405,21 @@ impl Constraint {
     }
 }
 
-impl ::std::hash::Hash for Constraint {
+impl<T> ::std::hash::Hash for Constraint<T> {
     fn hash<H: ::std::hash::Hasher>(&self, hasher: &mut H) {
         use ::std::ops::Deref;
         hasher.write_usize(self.0.deref() as *const _ as usize);
     }
 }
 
-impl PartialEq for Constraint {
-    fn eq(&self, other: &Constraint) -> bool {
+impl<T> PartialEq for Constraint<T> {
+    fn eq(&self, other: &Constraint<T>) -> bool {
         use ::std::ops::Deref;
         self.0.deref() as *const _ == other.0.deref() as *const _
     }
 }
 
-impl Eq for Constraint {}
+impl<T> Eq for Constraint<T> {}
 
 /// This is part of the syntactic sugar used for specifying constraints. This enum should be used as part of a
 /// constraint expression. See the module documentation for more information.
@@ -478,7 +446,7 @@ impl From<WeightedRelation> for (RelationalOperator, f64) {
 /// This is an intermediate type used in the syntactic sugar for specifying constraints. You should not use it
 /// directly.
 #[derive(Debug)]
-pub struct PartialConstraint(Expression, WeightedRelation);
+pub struct PartialConstraint<T>(Expression<T>, WeightedRelation);
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[derive(Debug)]
@@ -495,9 +463,49 @@ enum SymbolType {
 struct Symbol(usize, SymbolType);
 
 impl Symbol {
+    /// Choose the subject for solving for the row.
+    ///
+    /// This method will choose the best subject for using as the solve
+    /// target for the row. An invalid symbol will be returned if there
+    /// is no valid target.
+    ///
+    /// The symbols are chosen according to the following precedence:
+    ///
+    /// 1) The first symbol representing an external variable.
+    /// 2) A negative slack or error tag variable.
+    ///
+    /// If a subject cannot be found, an invalid symbol will be returned.
+    fn choose_subject(row: &Row, tag: &Tag) -> Symbol {
+        for s in row.cells.keys() {
+            if s.type_() == SymbolType::External {
+                return *s
+            }
+        }
+        if tag.marker.type_() == SymbolType::Slack || tag.marker.type_() == SymbolType::Error {
+            if row.coefficient_for(tag.marker) < 0.0 {
+                return tag.marker;
+            }
+        }
+        if tag.other.type_() == SymbolType::Slack || tag.other.type_() == SymbolType::Error {
+            if row.coefficient_for(tag.other) < 0.0 {
+                return tag.other;
+            }
+        }
+        Symbol::invalid()
+    }
+
     fn invalid() -> Symbol { Symbol(0, SymbolType::Invalid) }
     fn type_(&self) -> SymbolType { self.1 }
 }
+
+
+#[derive(Copy, Clone)]
+#[derive(Debug)]
+struct Tag {
+    marker: Symbol,
+    other: Symbol
+}
+
 
 #[derive(Clone)]
 #[derive(Debug)]
@@ -586,6 +594,45 @@ impl Row {
         } else {
             false
         }
+    }
+
+    /// Test whether a row is composed of all dummy variables.
+    fn all_dummies(&self) -> bool {
+        for symbol in self.cells.keys() {
+            if symbol.type_() != SymbolType::Dummy {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Get the first Slack or Error symbol in the row.
+    ///
+    /// If no such symbol is present, and Invalid symbol will be returned.
+    /// Never returns an External symbol
+    fn any_pivotable_symbol(&self) -> Symbol {
+        for symbol in self.cells.keys() {
+            if symbol.type_() == SymbolType::Slack || symbol.type_() == SymbolType::Error {
+                return *symbol;
+            }
+        }
+        Symbol::invalid()
+    }
+
+    /// Compute the entering variable for a pivot operation.
+    ///
+    /// This method will return first symbol in the objective function which
+    /// is non-dummy and has a coefficient less than zero. If no symbol meets
+    /// the criteria, it means the objective function is at a minimum, and an
+    /// invalid symbol is returned.
+    /// Could return an External symbol
+    fn get_entering_symbol(&self) -> Symbol {
+        for (symbol, value) in &self.cells {
+            if symbol.type_() != SymbolType::Dummy && *value < 0.0 {
+                return symbol.clone();
+            }
+        }
+        Symbol::invalid()
     }
 }
 

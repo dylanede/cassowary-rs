@@ -35,37 +35,50 @@ fn test_quadrilateral() {
     let mut weight = 1.0;
     let multiplier = 2.0;
     for i in 0..4 {
-        solver.add_constraints(&[points[i].x |EQ(WEAK * weight)| point_starts[i].0,
-                                 points[i].y |EQ(WEAK * weight)| point_starts[i].1])
+        solver
+            .add_constraints(
+                vec![points[i].x |EQ(WEAK * weight)| point_starts[i].0,
+                     points[i].y |EQ(WEAK * weight)| point_starts[i].1]
+            )
             .unwrap();
         weight *= multiplier;
     }
 
     for (start, end) in vec![(0, 1), (1, 2), (2, 3), (3, 0)] {
-        solver.add_constraints(&[midpoints[start].x |EQ(REQUIRED)| (points[start].x + points[end].x) / 2.0,
-                                 midpoints[start].y |EQ(REQUIRED)| (points[start].y + points[end].y) / 2.0])
+        solver
+            .add_constraints(
+                vec![midpoints[start].x |EQ(REQUIRED)| (points[start].x + points[end].x) / 2.0,
+                     midpoints[start].y |EQ(REQUIRED)| (points[start].y + points[end].y) / 2.0]
+            )
             .unwrap();
     }
 
-    solver.add_constraints(&[points[0].x + 20.0 |LE(STRONG)| points[2].x,
-                             points[0].x + 20.0 |LE(STRONG)| points[3].x,
+    solver
+        .add_constraints(
+            vec![points[0].x + 20.0 |LE(STRONG)| points[2].x,
+                 points[0].x + 20.0 |LE(STRONG)| points[3].x,
 
-                             points[1].x + 20.0 |LE(STRONG)| points[2].x,
-                             points[1].x + 20.0 |LE(STRONG)| points[3].x,
+                 points[1].x + 20.0 |LE(STRONG)| points[2].x,
+                 points[1].x + 20.0 |LE(STRONG)| points[3].x,
 
-                             points[0].y + 20.0 |LE(STRONG)| points[1].y,
-                             points[0].y + 20.0 |LE(STRONG)| points[2].y,
+                 points[0].y + 20.0 |LE(STRONG)| points[1].y,
+                 points[0].y + 20.0 |LE(STRONG)| points[2].y,
 
-                             points[3].y + 20.0 |LE(STRONG)| points[1].y,
-                             points[3].y + 20.0 |LE(STRONG)| points[2].y])
+                 points[3].y + 20.0 |LE(STRONG)| points[1].y,
+                 points[3].y + 20.0 |LE(STRONG)| points[2].y]
+        )
         .unwrap();
 
     for point in &points {
-        solver.add_constraints(&[point.x |GE(REQUIRED)| 0.0,
-                                 point.y |GE(REQUIRED)| 0.0,
+        solver
+            .add_constraints(
+                vec![point.x |GE(REQUIRED)| 0.0,
+                     point.y |GE(REQUIRED)| 0.0,
 
-                                 point.x |LE(REQUIRED)| 500.0,
-                                 point.y |LE(REQUIRED)| 500.0]).unwrap()
+                     point.x |LE(REQUIRED)| 500.0,
+                     point.y |LE(REQUIRED)| 500.0]
+            )
+            .unwrap()
     }
 
     update_values(solver.fetch_changes());

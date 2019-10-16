@@ -16,7 +16,7 @@ fn remove_constraint() {
 
     let val = Variable::new();
 
-    let constraint: Constraint = val | EQ(REQUIRED) | 100.0;
+    let constraint: Constraint<Variable> = val | EQ(REQUIRED) | 100.0;
     solver.add_constraint(constraint.clone()).unwrap();
     update_values(solver.fetch_changes());
 
