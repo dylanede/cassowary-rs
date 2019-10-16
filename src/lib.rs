@@ -235,6 +235,8 @@ use std::collections::hash_map::{Entry};
 
 mod solver_impl;
 mod operators;
+#[macro_use]
+mod derive_syntax;
 mod variable;
 pub use variable::*;
 
