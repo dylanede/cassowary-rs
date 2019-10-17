@@ -1,8 +1,9 @@
 extern crate cassowary;
 
-use cassowary::{Variable, Solver, Constraint};
+use cassowary::{Solver, Constraint};
 use cassowary::WeightedRelation::*;
 use cassowary::strength::*;
+use cassowary::variable::Variable;
 
 mod common;
 

@@ -2,7 +2,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::ops::*;
 
-use super::{Constraint, Expression, PartialConstraint, Term};
+use super::{Constraint, Expression, PartialConstraint, Term, WeightedRelation};
 
 static VARIABLE_ID: AtomicUsize = AtomicUsize::new(0);
 

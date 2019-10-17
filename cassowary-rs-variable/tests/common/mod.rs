@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use cassowary::Variable;
+use cassowary::variable::Variable;
 
 #[derive(Clone, Default)]
 struct Values(Rc<RefCell<HashMap<Variable, f64>>>);

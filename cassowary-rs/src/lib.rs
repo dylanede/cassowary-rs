@@ -31,8 +31,10 @@
 //!
 //! First we need to include the relevant parts of `cassowary`:
 //!
-//! ```
-//! use cassowary::{ Solver, Variable };
+//! ```ignore
+//! extern crate cassowary_variable;
+//! use cassowary::{ Solver };
+//! use cassowary_variable::Variable;
 //! use cassowary::WeightedRelation::*;
 //! use cassowary::strength::{ WEAK, MEDIUM, STRONG, REQUIRED };
 //! ```
@@ -157,8 +159,11 @@
 //! to control the behaviour when the preferred widths cannot both be satisfied. In this example we are going
 //! to constrain the boxes to try to maintain a ratio between their widths.
 //!
-//! ```
-//! # use cassowary::{ Solver, Variable };
+//! These docs are all out of date:
+//!
+//! ```ignore
+//! # use cassowary::Solver;
+//! # use cassowary_variable::Variable;
 //! # use cassowary::WeightedRelation::*;
 //! # use cassowary::strength::{ WEAK, MEDIUM, STRONG, REQUIRED };
 //! #
@@ -229,41 +234,42 @@
 //! One thing that this example exposes is that this crate is a rather low level library. It does not have
 //! any inherent knowledge of user interfaces, directions or boxes. Thus for use in a user interface this
 //! crate should ideally be wrapped by a higher level API, which is outside the scope of this crate.
-use std::sync::Arc;
+extern crate ordered_float;
+
 use std::collections::HashMap;
-use std::collections::hash_map::{Entry};
+use std::collections::hash_map::Entry;
+use ordered_float::OrderedFloat;
 
 mod solver_impl;
 mod operators;
 #[macro_use]
 pub mod derive_syntax;
-mod variable;
-pub use variable::*;
+
 
 /// A variable and a coefficient to multiply that variable by. This is a sub-expression in
 /// a constraint equation.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Term<T> {
     pub variable: T,
-    pub coefficient: f64
+    pub coefficient: OrderedFloat<f64>
 }
 
 impl<T> Term<T> {
     /// Construct a new Term from a variable and a coefficient.
-    fn new(variable: T, coefficient: f64) -> Term<T> {
+    pub fn new(variable: T, coefficient: f64) -> Term<T> {
         Term {
             variable: variable,
-            coefficient: coefficient
+            coefficient: coefficient.into()
         }
     }
 }
 
 /// An expression that can be the left hand or right hand side of a constraint equation.
 /// It is a linear combination of variables, i.e. a sum of variables weighted by coefficients, plus an optional constant.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Expression<T> {
     pub terms: Vec<Term<T>>,
-    pub constant: f64
+    pub constant: OrderedFloat<f64>
 }
 
 impl<T: Clone> Expression<T> {
@@ -271,7 +277,7 @@ impl<T: Clone> Expression<T> {
     pub fn from_constant(v: f64) -> Expression<T> {
         Expression {
             terms: Vec::new(),
-            constant: v
+            constant: v.into()
         }
     }
     /// Constructs an expression from a single term. Forms an expression of the form _n x_
@@ -279,19 +285,19 @@ impl<T: Clone> Expression<T> {
     pub fn from_term(term: Term<T>) -> Expression<T> {
         Expression {
             terms: vec![term],
-            constant: 0.0
+            constant: 0.0.into()
         }
     }
     /// General constructor. Each `Term` in `terms` is part of the sum forming the expression, as well as `constant`.
     pub fn new(terms: Vec<Term<T>>, constant: f64) -> Expression<T> {
         Expression {
             terms: terms,
-            constant: constant
+            constant: constant.into()
         }
     }
     /// Mutates this expression by multiplying it by minus one.
     pub fn negate(&mut self) {
-        self.constant = -self.constant;
+        self.constant = (-(self.constant.into_inner())).into();
         for t in &mut self.terms {
             let t2 = t.clone();
             *t = -t2;
@@ -370,28 +376,28 @@ impl std::fmt::Display for RelationalOperator {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct ConstraintData<T> {
     expression: Expression<T>,
-    strength: f64,
+    strength: OrderedFloat<f64>,
     op: RelationalOperator
 }
 
 /// A constraint, consisting of an equation governed by an expression and a relational operator,
 /// and an associated strength.
-#[derive(Clone, Debug)]
-pub struct Constraint<T>(Arc<ConstraintData<T>>);
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct Constraint<T>(ConstraintData<T>);
 
 impl<T> Constraint<T> {
     /// Construct a new constraint from an expression, a relational operator and a strength.
     /// This corresponds to the equation `e op 0.0`, e.g. `x + y >= 0.0`. For equations with a non-zero
     /// right hand side, subtract it from the equation to give a zero right hand side.
     pub fn new(e: Expression<T>, op: RelationalOperator, strength: f64) -> Constraint<T> {
-        Constraint(Arc::new(ConstraintData {
+        Constraint(ConstraintData {
             expression: e,
             op: op,
-            strength: strength
-        }))
+            strength: strength.into()
+        })
     }
     /// The expression of the left hand side of the constraint equation.
     pub fn expr(&self) -> &Expression<T> {
@@ -403,25 +409,15 @@ impl<T> Constraint<T> {
     }
     /// The strength of the constraint that the solver will use.
     pub fn strength(&self) -> f64 {
-        self.0.strength
+        self.0.strength.into_inner()
+    }
+    /// Set the strength in builder-style
+    pub fn with_strength(self, s:f64) -> Self {
+        let mut c = self;
+        c.0.strength = s.into();
+        c
     }
 }
-
-impl<T> ::std::hash::Hash for Constraint<T> {
-    fn hash<H: ::std::hash::Hasher>(&self, hasher: &mut H) {
-        use ::std::ops::Deref;
-        hasher.write_usize(self.0.deref() as *const _ as usize);
-    }
-}
-
-impl<T> PartialEq for Constraint<T> {
-    fn eq(&self, other: &Constraint<T>) -> bool {
-        use ::std::ops::Deref;
-        self.0.deref() as *const _ == other.0.deref() as *const _
-    }
-}
-
-impl<T> Eq for Constraint<T> {}
 
 /// This is part of the syntactic sugar used for specifying constraints. This enum should be used as part of a
 /// constraint expression. See the module documentation for more information.
@@ -448,7 +444,7 @@ impl From<WeightedRelation> for (RelationalOperator, f64) {
 /// This is an intermediate type used in the syntactic sugar for specifying constraints. You should not use it
 /// directly.
 #[derive(Debug)]
-pub struct PartialConstraint<T>(Expression<T>, WeightedRelation);
+pub struct PartialConstraint<T>(pub Expression<T>, pub WeightedRelation);
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[derive(Debug)]
@@ -526,7 +522,7 @@ fn near_zero(value: f64) -> bool {
 }
 
 impl Row {
-    fn new(constant: f64) -> Row {
+    pub fn new(constant: f64) -> Row {
         Row {
             cells: HashMap::new(),
             constant: constant

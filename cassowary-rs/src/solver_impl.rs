@@ -171,7 +171,7 @@ impl<T: Debug + Clone + Eq + Hash> Solver<T>
         // Check for and decrease the reference count for variables referenced by the constraint
         // If the reference count is zero remove the variable from the variable map
         for term in &constraint.expr().terms {
-            if !near_zero(term.coefficient) {
+            if !near_zero(term.coefficient.into_inner()) {
                 let mut should_remove = false;
                 if let Some(&mut (_, _, ref mut count)) = self.var_data.get_mut(&term.variable) {
                     *count -= 1;
@@ -380,15 +380,15 @@ impl<T: Debug + Clone + Eq + Hash> Solver<T>
     /// for tracking the movement of the constraint in the tableau.
     fn create_row(&mut self, constraint: &Constraint<T>) -> (Box<Row>, Tag) {
         let expr = constraint.expr();
-        let mut row = Row::new(expr.constant);
+        let mut row = Row::new(expr.constant.into_inner());
         // Substitute the current basic variables into the row.
         for term in &expr.terms {
-            if !near_zero(term.coefficient) {
+            if !near_zero(term.coefficient.into_inner()) {
                 let symbol = self.get_var_symbol(term.variable.clone());
                 if let Some(other_row) = self.rows.get(&symbol) {
-                    row.insert_row(other_row, term.coefficient);
+                    row.insert_row(other_row, term.coefficient.into_inner());
                 } else {
-                    row.insert_symbol(symbol, term.coefficient);
+                    row.insert_symbol(symbol, term.coefficient.into_inner());
                 }
             }
         }

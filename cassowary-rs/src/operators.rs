@@ -1,5 +1,4 @@
 use std::ops;
-use variable::Variable;
 
 use {
     Term,
@@ -9,27 +8,16 @@ use {
     Constraint
 };
 
-// Relation
+/// A trait for creating constraints using your custom variable types without
+/// using the BitOr hack.
+pub trait Constrainable where Self: Sized {
+  fn equal_to(self, x: f32) -> Constraint<Self>;
+  fn greater_than_or_equal_to(self, x: f32) -> Constraint<Self>;
+  fn lesser_than_or_equal_to(self, x: f32) -> Constraint<Self>;
+}
 
-impl ops::BitOr<WeightedRelation> for f64
-{
-    type Output = PartialConstraint<Variable>;
-    fn bitor(self, r: WeightedRelation) -> PartialConstraint<Variable> {
-        PartialConstraint(self.into(), r)
-    }
-}
-impl ops::BitOr<WeightedRelation> for f32 {
-    type Output = PartialConstraint<Variable>;
-    fn bitor(self, r: WeightedRelation) -> PartialConstraint<Variable> {
-        (self as f64).bitor(r)
-    }
-}
-impl ops::BitOr<WeightedRelation> for Variable {
-    type Output = PartialConstraint<Variable>;
-    fn bitor(self, r: WeightedRelation) -> PartialConstraint<Variable> {
-        PartialConstraint(self.into(), r)
-    }
-}
+// WeightedRelation
+
 impl<T: Clone> ops::BitOr<WeightedRelation> for Term<T> {
     type Output = PartialConstraint<T>;
     fn bitor(self, r: WeightedRelation) -> PartialConstraint<T> {
@@ -84,7 +72,7 @@ impl<T> ops::Mul<f64> for Term<T> {
 
 impl<T> ops::MulAssign<f64> for Term<T> {
     fn mul_assign(&mut self, v: f64) {
-        self.coefficient *= v;
+        *(self.coefficient.as_mut()) *= v;
     }
 }
 
@@ -104,7 +92,7 @@ impl<T> ops::MulAssign<f32> for Term<T> {
 impl<T> ops::Mul<Term<T>> for f64 {
     type Output = Term<T>;
     fn mul(self, mut t: Term<T>) -> Term<T> {
-        t.coefficient *= self;
+        *(t.coefficient.as_mut()) *= self;
         t
     }
 }
@@ -126,7 +114,7 @@ impl<T> ops::Div<f64> for Term<T> {
 
 impl<T> ops::DivAssign<f64> for Term<T> {
     fn div_assign(&mut self, v: f64) {
-        self.coefficient /= v;
+        *(self.coefficient.as_mut()) /= v;
     }
 }
 
@@ -203,7 +191,7 @@ impl<T> ops::AddAssign<Term<T>> for Expression<T> {
 impl<T> ops::Neg for Term<T> {
     type Output = Term<T>;
     fn neg(mut self) -> Term<T> {
-        self.coefficient = -self.coefficient;
+        *(self.coefficient.as_mut()) = -(self.coefficient.into_inner());
         self
     }
 }
@@ -278,7 +266,7 @@ impl<T:Clone> ops::Mul<f64> for Expression<T> {
 
 impl<T:Clone> ops::MulAssign<f64> for Expression<T> {
     fn mul_assign(&mut self, v: f64) {
-        self.constant *= v;
+        *(self.constant.as_mut()) *= v;
         for t in &mut self.terms {
             *t = t.clone() * v;
         }
@@ -295,7 +283,7 @@ impl<T:Clone> ops::Mul<f32> for Expression<T> {
 impl<T:Clone> ops::MulAssign<f32> for Expression<T> {
     fn mul_assign(&mut self, v: f32) {
         let v2 = v as f64;
-        self.constant *= v2;
+        *(self.constant.as_mut()) *= v2;
         for t in &mut self.terms {
             *t = t.clone() * v2;
         }
@@ -305,7 +293,7 @@ impl<T:Clone> ops::MulAssign<f32> for Expression<T> {
 impl<T:Clone> ops::Mul<Expression<T>> for f64 {
     type Output = Expression<T>;
     fn mul(self, mut e: Expression<T>) -> Expression<T> {
-        e.constant *= self;
+        *(e.constant.as_mut()) *= self;
         for t in &mut e.terms {
             *t = t.clone() * self;
         }
@@ -330,7 +318,7 @@ impl<T:Clone> ops::Div<f64> for Expression<T> {
 
 impl<T:Clone> ops::DivAssign<f64> for Expression<T> {
     fn div_assign(&mut self, v: f64) {
-        self.constant /= v;
+        *(self.constant.as_mut()) /= v;
         for t in &mut self.terms {
             *t = t.clone() / v;
         }
@@ -360,7 +348,7 @@ impl<T> ops::Add<f64> for Expression<T> {
 
 impl<T> ops::AddAssign<f64> for Expression<T> {
     fn add_assign(&mut self, v: f64) {
-        self.constant += v;
+        *(self.constant.as_mut()) += v;
     }
 }
 
@@ -380,7 +368,7 @@ impl<T> ops::AddAssign<f32> for Expression<T> {
 impl<T> ops::Add<Expression<T>> for f64 {
     type Output = Expression<T>;
     fn add(self, mut e: Expression<T>) -> Expression<T> {
-        e.constant += self;
+        *(e.constant.as_mut()) += self;
         e
     }
 }
@@ -403,7 +391,7 @@ impl<T> ops::Add<Expression<T>> for Expression<T> {
 impl<T> ops::AddAssign<Expression<T>> for Expression<T> {
     fn add_assign(&mut self, mut e: Expression<T>) {
         self.terms.append(&mut e.terms);
-        self.constant += e.constant;
+        *(self.constant.as_mut()) += e.constant.into_inner();
     }
 }
 
@@ -425,7 +413,7 @@ impl<T> ops::Sub<f64> for Expression<T> {
 
 impl<T> ops::SubAssign<f64> for Expression<T> {
     fn sub_assign(&mut self, v: f64) {
-        self.constant -= v;
+        *(self.constant.as_mut()) -= v;
     }
 }
 
@@ -446,7 +434,7 @@ impl<T:Clone> ops::Sub<Expression<T>> for f64 {
     type Output = Expression<T>;
     fn sub(self, mut e: Expression<T>) -> Expression<T> {
         e.negate();
-        e.constant += self;
+        *(e.constant.as_mut()) += self;
         e
     }
 }
@@ -470,6 +458,6 @@ impl<T:Clone> ops::SubAssign<Expression<T>> for Expression<T> {
     fn sub_assign(&mut self, mut e: Expression<T>) {
         e.negate();
         self.terms.append(&mut e.terms);
-        self.constant += e.constant;
+        *(self.constant.as_mut()) += e.constant.into_inner();
     }
 }

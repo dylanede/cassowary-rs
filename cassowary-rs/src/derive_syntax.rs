@@ -1,4 +1,31 @@
 #[macro_export]
+macro_rules! derive_bitor_for {
+  ( $x:ty ) => {
+    impl BitOr<WeightedRelation> for f64
+    {
+      type Output = PartialConstraint<$x>;
+      fn bitor(self, r: WeightedRelation) -> PartialConstraint<$x> {
+        PartialConstraint(self.into(), r)
+      }
+    }
+    impl BitOr<WeightedRelation> for f32 {
+      type Output = PartialConstraint<$x>;
+      fn bitor(self, r: WeightedRelation) -> PartialConstraint<$x> {
+        (self as f64).bitor(r)
+      }
+    }
+    impl BitOr<WeightedRelation> for $x {
+      type Output = PartialConstraint<$x>;
+      fn bitor(self, r: WeightedRelation) -> PartialConstraint<$x> {
+        PartialConstraint(self.into(), r)
+      }
+    }
+  }
+}
+
+/// Derives operator support for your cassowary solver variable type.
+/// This allows you to use your variable type in writing expressions, to a limited extent.
+#[macro_export]
 macro_rules! derive_syntax_for {
     ( $x:ty ) => {
         impl From<$x> for Expression<$x> {
@@ -199,7 +226,6 @@ macro_rules! derive_syntax_for {
             }
         }
 
-        // $x in relation to other syntax things
         impl BitOr<$x> for PartialConstraint<$x> {
             type Output = Constraint<$x>;
             fn bitor(self, rhs: $x) -> Constraint<$x> {
@@ -208,4 +234,35 @@ macro_rules! derive_syntax_for {
             }
         }
     };
+}
+
+
+#[cfg(test)]
+mod tests {
+  use super::super::{
+    Constraint,
+    Expression,
+    PartialConstraint,
+    Term
+  };
+
+  use std::ops::*;
+
+  #[derive(Clone)]
+  enum VariableX {
+    Left(usize), Width(usize)
+  }
+
+  derive_syntax_for!(VariableX);
+
+  fn can_do_ops() {
+    let left_0 =
+      VariableX::Left(0);
+
+    let width_0 =
+      VariableX::Width(0);
+
+    //let op =
+    //  left_0
+  }
 }
