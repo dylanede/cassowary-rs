@@ -2,4 +2,5 @@
 
 members = [
   "cassowary-rs",
+  "cassowary-rs-variable",
 ]

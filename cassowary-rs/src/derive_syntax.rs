@@ -1,19 +1,19 @@
 #[macro_export]
 macro_rules! derive_bitor_for {
   ( $x:ty ) => {
-    impl BitOr<WeightedRelation> for f64
-    {
-      type Output = PartialConstraint<$x>;
-      fn bitor(self, r: WeightedRelation) -> PartialConstraint<$x> {
-        PartialConstraint(self.into(), r)
-      }
-    }
-    impl BitOr<WeightedRelation> for f32 {
-      type Output = PartialConstraint<$x>;
-      fn bitor(self, r: WeightedRelation) -> PartialConstraint<$x> {
-        (self as f64).bitor(r)
-      }
-    }
+//    impl BitOr<WeightedRelation> for f64
+//    {
+//      type Output = PartialConstraint<$x>;
+//      fn bitor(self, r: WeightedRelation) -> PartialConstraint<$x> {
+//        PartialConstraint(self.into(), r)
+//      }
+//    }
+//    impl BitOr<WeightedRelation> for f32 {
+//      type Output = PartialConstraint<$x>;
+//      fn bitor(self, r: WeightedRelation) -> PartialConstraint<$x> {
+//        (self as f64).bitor(r)
+//      }
+//    }
     impl BitOr<WeightedRelation> for $x {
       type Output = PartialConstraint<$x>;
       fn bitor(self, r: WeightedRelation) -> PartialConstraint<$x> {
@@ -233,36 +233,75 @@ macro_rules! derive_syntax_for {
                 Constraint::new(self.0 - rhs, op, s)
             }
         }
+
+        impl Constrainable for $x {}
     };
 }
 
 
 #[cfg(test)]
 mod tests {
-  use super::super::{
-    Constraint,
-    Expression,
-    PartialConstraint,
-    Term
-  };
+    use super::super::{
+        Constrainable,
+        Constraint,
+        Expression,
+        PartialConstraint,
+        Solver,
+        Term
+    };
 
-  use std::ops::*;
+    use std::ops::*;
 
-  #[derive(Clone)]
-  enum VariableX {
-    Left(usize), Width(usize)
-  }
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    enum VariableX {
+        Left(usize), Width(usize)
+    }
+    derive_syntax_for!(VariableX);
 
-  derive_syntax_for!(VariableX);
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    enum VariableY {
+        Top(usize), Height(usize)
+    }
+    derive_syntax_for!(VariableY);
 
-  fn can_do_ops() {
-    let left_0 =
-      VariableX::Left(0);
 
-    let width_0 =
-      VariableX::Width(0);
+    struct Element(usize);
 
-    //let op =
-    //  left_0
-  }
+    impl Element {
+        fn left(&self) -> VariableX {
+            VariableX::Left(self.0)
+        }
+        fn width(&self) -> VariableX {
+            VariableX::Width(self.0)
+        }
+        fn _top(&self) -> VariableX {
+            VariableX::Left(self.0)
+        }
+        fn _height(&self) -> VariableX {
+            VariableX::Width(self.0)
+        }
+    }
+
+
+    #[test]
+    fn can_do_ops() {
+        let el0 =
+            Element(0);
+        let el1 =
+            Element(1);
+
+        let mut solver_x = Solver::new();
+        solver_x
+            .add_constraints(
+                vec![
+                    el0.left().is(0.0),
+                    el0.width().is(100.0),
+                    el1.left().is_ge(el0.left() + el0.width())
+                ]
+            )
+            .unwrap();
+        assert_eq!(solver_x.get_value(el0.left()), 0.0);
+        assert_eq!(solver_x.get_value(el0.width()), 100.0);
+        assert_eq!(solver_x.get_value(el1.left()), 100.0);
+    }
 }

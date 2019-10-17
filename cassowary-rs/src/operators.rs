@@ -8,12 +8,56 @@ use {
     Constraint
 };
 
+use WeightedRelation::*;
+use strength::*;
+
 /// A trait for creating constraints using your custom variable types without
 /// using the BitOr hack.
-pub trait Constrainable where Self: Sized {
-  fn equal_to(self, x: f32) -> Constraint<Self>;
-  fn greater_than_or_equal_to(self, x: f32) -> Constraint<Self>;
-  fn lesser_than_or_equal_to(self, x: f32) -> Constraint<Self>;
+pub trait Constrainable where Self: Clone + Sized + Into<Expression<Self>> {
+    fn equal_to<X>(self, x: X) -> Constraint<Self>
+    where
+        X: Into<Expression<Self>> + Clone
+    {
+        let expr:Expression<Self> = self.into();
+        expr |EQ(REQUIRED)| x.into()
+    }
+
+    fn is<X>(self, x: X) -> Constraint<Self>
+    where
+        X: Into<Expression<Self>> + Clone
+    {
+        self.equal_to(x)
+    }
+
+    fn greater_than_or_equal_to<X>(self, x: X) -> Constraint<Self>
+    where
+        X: Into<Expression<Self>> + Clone
+    {
+        let expr:Expression<Self> = self.into();
+        expr |GE(REQUIRED)| x.into()
+    }
+
+    fn is_ge<X>(self, x: X) -> Constraint<Self>
+    where
+        X: Into<Expression<Self>> + Clone
+    {
+        self.greater_than_or_equal_to(x)
+    }
+
+    fn less_than_or_equal_to<X>(self, x: X) -> Constraint<Self>
+    where
+        X: Into<Expression<Self>> + Clone
+    {
+        let expr:Expression<Self> = self.into();
+        expr |LE(REQUIRED)| x.into()
+    }
+
+    fn is_le<X>(self, x: X) -> Constraint<Self>
+    where
+        X: Into<Expression<Self>> + Clone
+    {
+        self.less_than_or_equal_to(x)
+    }
 }
 
 // WeightedRelation

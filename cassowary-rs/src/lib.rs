@@ -162,62 +162,7 @@
 //! These docs are all out of date:
 //!
 //! ```ignore
-//! # use cassowary::Solver;
-//! # use cassowary_variable::Variable;
-//! # use cassowary::WeightedRelation::*;
-//! # use cassowary::strength::{ WEAK, MEDIUM, STRONG, REQUIRED };
-//! #
-//! # use std::collections::HashMap;
-//! # let mut names = HashMap::new();
-//! # fn print_changes(names: &HashMap<Variable, &'static str>, changes: &[(Variable, f64)]) {
-//! #     println!("Changes:");
-//! #     for &(ref var, ref val) in changes {
-//! #         println!("{}: {}", names[var], val);
-//! #     }
-//! # }
-//! #
-//! # let window_width = Variable::new();
-//! # names.insert(window_width, "window_width");
-//! # struct Element {
-//! #    left: Variable,
-//! #    right: Variable
-//! # }
-//! # let box1 = Element {
-//! #     left: Variable::new(),
-//! #     right: Variable::new()
-//! # };
-//! # names.insert(box1.left, "box1.left");
-//! # names.insert(box1.right, "box1.right");
-//! # let box2 = Element {
-//! #     left: Variable::new(),
-//! #     right: Variable::new()
-//! # };
-//! # names.insert(box2.left, "box2.left");
-//! # names.insert(box2.right, "box2.right");
-//! # let mut solver = Solver::new();
-//! # solver
-//! #     .add_constraints(
-//! #         vec![window_width |GE(REQUIRED)| 0.0, // positive window width
-//! #              box1.left |EQ(REQUIRED)| 0.0, // left align
-//! #              box2.right |EQ(REQUIRED)| window_width, // right align
-//! #              box2.left |GE(REQUIRED)| box1.right, // no overlap
-//! #              // positive widths
-//! #              box1.left |LE(REQUIRED)| box1.right,
-//! #              box2.left |LE(REQUIRED)| box2.right,
-//! #              // preferred widths:
-//! #              box1.right - box1.left |EQ(WEAK)| 50.0,
-//! #              box2.right - box2.left |EQ(WEAK)| 100.0]
-//! #     )
-//! #     .unwrap();
-//! # solver.add_edit_variable(window_width, STRONG).unwrap();
-//! # solver.suggest_value(window_width, 300.0).unwrap();
-//! # print_changes(&names, solver.fetch_changes());
-//! # solver.suggest_value(window_width, 75.0);
-//! # print_changes(&names, solver.fetch_changes());
-//! solver.add_constraint(
-//!     (box1.right - box1.left) / 50.0 |EQ(MEDIUM)| (box2.right - box2.left) / 100.0
-//!     ).unwrap();
-//! print_changes(&names, solver.fetch_changes());
+
 //! ```
 //!
 //! Now the result gives values that maintain the ratio between the sizes of the two boxes:
@@ -242,6 +187,7 @@ use ordered_float::OrderedFloat;
 
 mod solver_impl;
 mod operators;
+pub use operators::Constrainable;
 #[macro_use]
 pub mod derive_syntax;
 
@@ -376,45 +322,44 @@ impl std::fmt::Display for RelationalOperator {
     }
 }
 
+
+/// A constraint, consisting of an equation governed by an expression and a relational operator,
+/// and an associated strength.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct ConstraintData<T> {
+pub struct Constraint<T>{
     expression: Expression<T>,
     strength: OrderedFloat<f64>,
     op: RelationalOperator
 }
 
-/// A constraint, consisting of an equation governed by an expression and a relational operator,
-/// and an associated strength.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct Constraint<T>(ConstraintData<T>);
 
 impl<T> Constraint<T> {
     /// Construct a new constraint from an expression, a relational operator and a strength.
     /// This corresponds to the equation `e op 0.0`, e.g. `x + y >= 0.0`. For equations with a non-zero
     /// right hand side, subtract it from the equation to give a zero right hand side.
     pub fn new(e: Expression<T>, op: RelationalOperator, strength: f64) -> Constraint<T> {
-        Constraint(ConstraintData {
+        Constraint{
             expression: e,
             op: op,
             strength: strength.into()
-        })
+        }
     }
     /// The expression of the left hand side of the constraint equation.
     pub fn expr(&self) -> &Expression<T> {
-        &self.0.expression
+        &self.expression
     }
     /// The relational operator governing the constraint.
     pub fn op(&self) -> RelationalOperator {
-        self.0.op
+        self.op
     }
     /// The strength of the constraint that the solver will use.
     pub fn strength(&self) -> f64 {
-        self.0.strength.into_inner()
+        self.strength.into_inner()
     }
     /// Set the strength in builder-style
     pub fn with_strength(self, s:f64) -> Self {
         let mut c = self;
-        c.0.strength = s.into();
+        c.strength = s.into();
         c
     }
 }
