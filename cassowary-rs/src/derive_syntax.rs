@@ -252,11 +252,13 @@ mod tests {
 
     use std::ops::*;
 
+
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     enum VariableX {
         Left(usize), Width(usize)
     }
     derive_syntax_for!(VariableX);
+
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     enum VariableY {
@@ -266,6 +268,7 @@ mod tests {
 
 
     struct Element(usize);
+
 
     impl Element {
         fn left(&self) -> VariableX {
