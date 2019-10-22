@@ -8,57 +8,32 @@ use {
     Constraint
 };
 
-use WeightedRelation::*;
-use strength::*;
-
 /// A trait for creating constraints using your custom variable types without
 /// using the BitOr hack.
-pub trait Constrainable where Self: Clone + Sized + Into<Expression<Self>> {
-    fn equal_to<X>(self, x: X) -> Constraint<Self>
-    where
-        X: Into<Expression<Self>> + Clone
-    {
-        let expr:Expression<Self> = self.into();
-        expr |EQ(REQUIRED)| x.into()
-    }
+pub trait Constrainable<Var>
+where
+    Var: Sized,
+    Self: Sized
+{
+    fn equal_to<X>(self, x: X) -> Constraint<Var> where X: Into<Expression<Var>> + Clone;
 
-    fn is<X>(self, x: X) -> Constraint<Self>
-    where
-        X: Into<Expression<Self>> + Clone
-    {
+    fn is<X>(self, x: X) -> Constraint<Var> where X: Into<Expression<Var>> + Clone {
         self.equal_to(x)
     }
 
-    fn greater_than_or_equal_to<X>(self, x: X) -> Constraint<Self>
-    where
-        X: Into<Expression<Self>> + Clone
-    {
-        let expr:Expression<Self> = self.into();
-        expr |GE(REQUIRED)| x.into()
-    }
+    fn greater_than_or_equal_to<X>(self, x: X) -> Constraint<Var> where X: Into<Expression<Var>> + Clone;
 
-    fn is_ge<X>(self, x: X) -> Constraint<Self>
-    where
-        X: Into<Expression<Self>> + Clone
-    {
+    fn is_ge<X>(self, x: X) -> Constraint<Var> where X: Into<Expression<Var>> + Clone {
         self.greater_than_or_equal_to(x)
     }
 
-    fn less_than_or_equal_to<X>(self, x: X) -> Constraint<Self>
-    where
-        X: Into<Expression<Self>> + Clone
-    {
-        let expr:Expression<Self> = self.into();
-        expr |LE(REQUIRED)| x.into()
-    }
+    fn less_than_or_equal_to<X>(self, x: X) -> Constraint<Var> where X: Into<Expression<Var>> + Clone;
 
-    fn is_le<X>(self, x: X) -> Constraint<Self>
-    where
-        X: Into<Expression<Self>> + Clone
-    {
+    fn is_le<X>(self, x: X) -> Constraint<Var> where X: Into<Expression<Var>> + Clone {
         self.less_than_or_equal_to(x)
     }
 }
+
 
 // WeightedRelation
 

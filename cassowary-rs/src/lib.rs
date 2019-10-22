@@ -251,6 +251,20 @@ impl<T: Clone> Expression<T> {
     }
 }
 
+impl<Var: Clone> Constrainable<Var> for Expression<Var> {
+    fn equal_to<X>(self, x: X) -> Constraint<Var> where X: Into<Expression<Var>> + Clone {
+        self |WeightedRelation::EQ(strength::REQUIRED) | x.into()
+    }
+
+    fn greater_than_or_equal_to<X>(self, x: X) -> Constraint<Var> where X: Into<Expression<Var>> + Clone {
+        self |WeightedRelation::GE(strength::REQUIRED) | x.into()
+    }
+
+    fn less_than_or_equal_to<X>(self, x: X) -> Constraint<Var> where X: Into<Expression<Var>> + Clone {
+        self |WeightedRelation::LE(strength::REQUIRED) | x.into()
+    }
+}
+
 impl<T: Clone> From<f64> for Expression<T> {
     fn from(v: f64) -> Expression<T> {
         Expression::from_constant(v)
@@ -259,6 +273,12 @@ impl<T: Clone> From<f64> for Expression<T> {
 
 impl<T: Clone> From<i32> for Expression<T> {
   fn from(v: i32) -> Expression<T> {
+    Expression::from_constant(v as f64)
+  }
+}
+
+impl<T: Clone> From<u32> for Expression<T> {
+  fn from(v: u32) -> Expression<T> {
     Expression::from_constant(v as f64)
   }
 }

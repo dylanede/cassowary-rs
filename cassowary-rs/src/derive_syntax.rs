@@ -234,7 +234,32 @@ macro_rules! derive_syntax_for {
             }
         }
 
-        impl Constrainable for $x {}
+        impl Constrainable<$x> for $x {
+            fn equal_to<X>(self, x:X) -> Constraint<$x> where X: Into<Expression<$x>> + Clone {
+                let lhs:Expression<$x> =
+                    self
+                    .into();
+                let rhs:Expression<$x> =
+                    x.into();
+                lhs.equal_to(rhs)
+            }
+            fn greater_than_or_equal_to<X>(self, x:X) -> Constraint<$x> where X: Into<Expression<$x>> + Clone {
+                let lhs:Expression<$x> =
+                    self
+                    .into();
+                let rhs:Expression<$x> =
+                    x.into();
+                lhs.is_ge(rhs)
+            }
+            fn less_than_or_equal_to<X>(self, x:X) -> Constraint<$x> where X: Into<Expression<$x>> + Clone {
+                let lhs:Expression<$x> =
+                    self
+                    .into();
+                let rhs:Expression<$x> =
+                    x.into();
+                lhs.is_le(rhs)
+            }
+        }
     };
 }
 
