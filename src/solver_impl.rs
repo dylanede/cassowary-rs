@@ -204,7 +204,9 @@ impl<T: Debug + Clone + Eq + Hash> Solver<T>
         let cn = Constraint::new(Expression::from_term(Term::new(v.clone(), 1.0)),
                                  RelationalOperator::Equal,
                                  strength);
-        self.add_constraint(cn.clone()).unwrap();
+        self
+            .add_constraint(cn.clone())
+            .expect("Could not add constraint in add_edit_variable");
         self.edits.insert(v.clone(), EditInfo {
             tag: self.cns[&cn].clone(),
             constraint: cn,

@@ -733,10 +733,16 @@ mod tests {
         solver
             .add_constraint(box2.left |LE(REQUIRED)| box2.right)
             .expect("Could not add positive widths 2 constraint");
-        solver.add_edit_variable(window_width, STRONG).unwrap();
-        solver.suggest_value(window_width, 300.0).unwrap();
+        solver
+            .add_edit_variable(window_width, STRONG)
+            .expect("Could not add window width edit var");
+        solver
+            .suggest_value(window_width, 300.0)
+            .expect("Could not suggest window width = 300");
         print_changes(&names, solver.fetch_changes());
-        solver.suggest_value(window_width, 75.0).unwrap();
+        solver
+            .suggest_value(window_width, 75.0)
+            .expect("Could not suggest window width = 75");
         print_changes(&names, solver.fetch_changes());
         //solver.add_constraint(
         //    (box1.right - box1.left) / 50.0 |EQ(MEDIUM)| (box2.right - box2.left) / 100.0
