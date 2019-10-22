@@ -479,8 +479,8 @@ struct Tag {
 #[derive(Clone)]
 #[derive(Debug)]
 struct Row {
-    cells: HashMap<Symbol, f64>,
-    constant: f64
+    cells: HashMap<Symbol, OrderedFloat<f64>>,
+    constant: OrderedFloat<f64>
 }
 
 fn near_zero(value: f64) -> bool {
@@ -496,21 +496,23 @@ impl Row {
     pub fn new(constant: f64) -> Row {
         Row {
             cells: HashMap::new(),
-            constant: constant
+            constant: constant.into()
         }
     }
     fn add(&mut self, v: f64) -> f64 {
-        self.constant += v;
-        self.constant
+        *(self.constant.as_mut()) += v;
+        self.constant.into_inner()
     }
     fn insert_symbol(&mut self, s: Symbol, coefficient: f64) {
         match self.cells.entry(s) {
             Entry::Vacant(entry) => if !near_zero(coefficient) {
-                entry.insert(coefficient);
+                entry.insert(coefficient.into());
             },
             Entry::Occupied(mut entry) => {
-                *entry.get_mut() += coefficient;
-                if near_zero(*entry.get_mut()) {
+                let ofloat = entry.get_mut();
+                let float = ofloat.as_mut();
+                *float += coefficient;
+                if near_zero(*float) {
                     entry.remove();
                 }
             }
@@ -518,10 +520,10 @@ impl Row {
     }
 
     fn insert_row(&mut self, other: &Row, coefficient: f64) -> bool {
-        let constant_diff = other.constant * coefficient;
-        self.constant += constant_diff;
+        let constant_diff = other.constant.as_ref() * coefficient;
+        *self.constant.as_mut() += constant_diff;
         for (s, v) in &other.cells {
-            self.insert_symbol(*s, v * coefficient);
+            self.insert_symbol(*s, v.into_inner() * coefficient);
         }
         constant_diff != 0.0
     }
@@ -531,20 +533,20 @@ impl Row {
     }
 
     fn reverse_sign(&mut self) {
-        self.constant = -self.constant;
+        *self.constant.as_mut() *= -1.0;
         for (_, v) in &mut self.cells {
-            *v = -*v;
+            *v.as_mut() *= -1.0;
         }
     }
 
     fn solve_for_symbol(&mut self, s: Symbol) {
         let coeff = -1.0 / match self.cells.entry(s) {
-            Entry::Occupied(entry) => entry.remove(),
+            Entry::Occupied(entry) => entry.remove().into_inner(),
             Entry::Vacant(_) => unreachable!()
         };
-        self.constant *= coeff;
+        *self.constant.as_mut() *= coeff;
         for (_, v) in &mut self.cells {
-            *v *= coeff;
+            *v.as_mut() *= coeff;
         }
     }
 
@@ -554,12 +556,12 @@ impl Row {
     }
 
     fn coefficient_for(&self, s: Symbol) -> f64 {
-        self.cells.get(&s).cloned().unwrap_or(0.0)
+        self.cells.get(&s).cloned().map(|o| o.into_inner()).unwrap_or(0.0)
     }
 
     fn substitute(&mut self, s: Symbol, row: &Row) -> bool {
         if let Some(coeff) = self.cells.remove(&s) {
-            self.insert_row(row, coeff)
+            self.insert_row(row, coeff.into())
         } else {
             false
         }
@@ -597,7 +599,7 @@ impl Row {
     /// Could return an External symbol
     fn get_entering_symbol(&self) -> Symbol {
         for (symbol, value) in &self.cells {
-            if symbol.type_() != SymbolType::Dummy && *value < 0.0 {
+            if symbol.type_() != SymbolType::Dummy && *value.as_ref() < 0.0 {
                 return symbol.clone();
             }
         }
@@ -660,3 +662,248 @@ pub enum SuggestValueError {
 struct InternalSolverError(&'static str);
 
 pub use solver_impl::Solver;
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::strength::*;
+    use super::WeightedRelation::*;
+    //use std::cell::RefCell;
+    use std::collections::HashMap;
+    //use std::rc::Rc;
+    use std::ops::*;
+
+
+    #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+    pub struct Variable(u8);
+    derive_syntax_for!(Variable);
+    derive_bitor_for!(Variable);
+
+    #[test]
+    fn example() {
+        let mut names = HashMap::new();
+        fn print_changes(names: &HashMap<Variable, &'static str>, changes: &[(Variable, f64)]) {
+            println!("Changes:");
+            for &(ref var, ref val) in changes {
+                println!("{}: {}", names[var], val);
+            }
+        }
+
+        let window_width = Variable(0);
+        names.insert(window_width, "window_width");
+        struct Element {
+            left: Variable,
+            right: Variable
+        }
+        let box1 = Element {
+            left: Variable(1),
+            right: Variable(2)
+        };
+        names.insert(box1.left, "box1.left");
+        names.insert(box1.right, "box1.right");
+        let box2 = Element {
+            left: Variable(3),
+            right: Variable(4)
+        };
+        names.insert(box2.left, "box2.left");
+        names.insert(box2.right, "box2.right");
+        let mut solver = Solver::new();
+        //solver
+        //    .add_constraint(window_width |EQ(REQUIRED)| 1000.0)
+        //    .expect("Could not add window width = 1000");
+        solver
+            .add_constraint(box1.left |EQ(REQUIRED)| 0.0)
+            .expect("Could not add left align constraint");
+        solver
+            .add_constraint(box2.right |EQ(REQUIRED)| window_width)
+            .expect("Could not add right align constraint");
+        solver
+            .add_constraint(box2.left |GE(REQUIRED)| box1.right)
+            .expect("Could not add no overlap constraint");
+        solver
+            .add_constraint(box1.right - box1.left |EQ(WEAK)| 100.0)
+            .expect("Could not add box1 width constraint");
+        solver
+            .add_constraint(box2.right - box2.left |EQ(WEAK)| 100.0)
+            .expect("Could not add box2 width constraint");
+        solver
+            .add_constraint(box1.left |LE(REQUIRED)| box1.right)
+            .expect("Could not add box1 left > box1 right constraint");
+        solver
+            .add_constraint(box2.left |LE(REQUIRED)| box2.right)
+            .expect("Could not add positive widths 2 constraint");
+        solver.add_edit_variable(window_width, STRONG).unwrap();
+        solver.suggest_value(window_width, 300.0).unwrap();
+        print_changes(&names, solver.fetch_changes());
+        solver.suggest_value(window_width, 75.0).unwrap();
+        print_changes(&names, solver.fetch_changes());
+        //solver.add_constraint(
+        //    (box1.right - box1.left) / 50.0 |EQ(MEDIUM)| (box2.right - box2.left) / 100.0
+        //).unwrap();
+        print_changes(&names, solver.fetch_changes());
+    }
+
+//    #[derive(Clone, Default)]
+//    struct Values(Rc<RefCell<HashMap<Variable, f64>>>);
+//
+//    impl Values {
+//        fn value_of(&self, var: Variable) -> f64 {
+//            *self.0.borrow().get(&var).unwrap_or(&0.0)
+//        }
+//        fn update_values(&self, changes: &[(Variable, f64)]) {
+//            for &(ref var, ref value) in changes {
+//                println!("{:?} changed to {:?}", var, value);
+//                self.0.borrow_mut().insert(*var, *value);
+//            }
+//        }
+//    }
+//
+//    pub fn new_values() -> (Box<Fn(Variable) -> f64>, Box<Fn(&[(Variable, f64)])>) {
+//        let values = Values(Rc::new(RefCell::new(HashMap::new())));
+//        let value_of = {
+//            let values = values.clone();
+//            move |v| values.value_of(v)
+//        };
+//        let update_values = {
+//            let values = values.clone();
+//            move |changes: &[_]| {
+//                values.update_values(changes);
+//            }
+//        };
+//        (Box::new(value_of), Box::new(update_values))
+//    }
+
+    //#[test]
+    //fn test_quadrilateral() {
+    //    struct Point {
+    //        x: Variable,
+    //        y: Variable
+    //    }
+    //    impl Point {
+    //        fn new() -> Point {
+    //            Point {
+    //                x: Variable::new(),
+    //                y: Variable::new()
+    //            }
+    //        }
+    //    }
+    //    let (value_of, update_values) = new_values();
+
+    //    let points = [Point::new(),
+    //                  Point::new(),
+    //                  Point::new(),
+    //                  Point::new()];
+    //    let point_starts = [(10.0, 10.0), (10.0, 200.0), (200.0, 200.0), (200.0, 10.0)];
+    //    let midpoints = [Point::new(),
+    //                     Point::new(),
+    //                     Point::new(),
+    //                     Point::new()];
+    //    let mut solver = Solver::new();
+    //    let mut weight = 1.0;
+    //    let multiplier = 2.0;
+    //    for i in 0..4 {
+    //        solver
+    //            .add_constraints(
+    //                vec![points[i].x |EQ(WEAK * weight)| point_starts[i].0,
+    //                     points[i].y |EQ(WEAK * weight)| point_starts[i].1]
+    //            )
+    //            .expect("Could not add initial quad points");
+    //        weight *= multiplier;
+    //    }
+
+    //    for (start, end) in vec![(0, 1), (1, 2), (2, 3), (3, 0)] {
+    //        solver
+    //            .add_constraints(
+    //                vec![midpoints[start].x |EQ(REQUIRED)| (points[start].x + points[end].x) / 2.0,
+    //                     midpoints[start].y |EQ(REQUIRED)| (points[start].y + points[end].y) / 2.0]
+    //            )
+    //            .expect("Could not add quad midpoints");
+    //    }
+
+    //    solver
+    //        .add_constraints(
+    //            vec![points[0].x + 20.0 |LE(STRONG)| points[2].x,
+    //                 points[0].x + 20.0 |LE(STRONG)| points[3].x,
+
+    //                 points[1].x + 20.0 |LE(STRONG)| points[2].x,
+    //                 points[1].x + 20.0 |LE(STRONG)| points[3].x,
+
+    //                 points[0].y + 20.0 |LE(STRONG)| points[1].y,
+    //                 points[0].y + 20.0 |LE(STRONG)| points[2].y,
+
+    //                 points[3].y + 20.0 |LE(STRONG)| points[1].y,
+    //                 points[3].y + 20.0 |LE(STRONG)| points[2].y]
+    //        )
+    //        .expect("Could not add quad midpoint constraints");
+
+    //    for point in &points {
+    //        solver
+    //            .add_constraints(
+    //                vec![point.x |GE(REQUIRED)| 0.0,
+    //                     point.y |GE(REQUIRED)| 0.0,
+
+    //                     point.x |LE(REQUIRED)| 500.0,
+    //                     point.y |LE(REQUIRED)| 500.0]
+    //            )
+    //            .expect("Could not add required bounds on quad");
+    //    }
+
+    //    update_values(solver.fetch_changes());
+
+    //    assert_eq!([(value_of(midpoints[0].x), value_of(midpoints[0].y)),
+    //                (value_of(midpoints[1].x), value_of(midpoints[1].y)),
+    //                (value_of(midpoints[2].x), value_of(midpoints[2].y)),
+    //                (value_of(midpoints[3].x), value_of(midpoints[3].y))],
+    //               [(10.0, 105.0),
+    //                (105.0, 200.0),
+    //                (200.0, 105.0),
+    //                (105.0, 10.0)]);
+
+    //    solver.add_edit_variable(points[2].x, STRONG).expect("Could not add x edit variable for 2nd point");
+    //    solver.add_edit_variable(points[2].y, STRONG).expect("Could not add y edit variable for 2nd point");
+    //    solver.suggest_value(points[2].x, 300.0).expect("Could not suggest value for x edit variable for 2nd point");
+    //    solver.suggest_value(points[2].y, 400.0).expect("Could not suggest value for y edit variable for 2nd point");
+
+    //    update_values(solver.fetch_changes());
+
+    //    assert_eq!([(value_of(points[0].x), value_of(points[0].y)),
+    //                (value_of(points[1].x), value_of(points[1].y)),
+    //                (value_of(points[2].x), value_of(points[2].y)),
+    //                (value_of(points[3].x), value_of(points[3].y))],
+    //               [(10.0, 10.0),
+    //                (10.0, 200.0),
+    //                (300.0, 400.0),
+    //                (200.0, 10.0)]);
+
+    //    assert_eq!([(value_of(midpoints[0].x), value_of(midpoints[0].y)),
+    //                (value_of(midpoints[1].x), value_of(midpoints[1].y)),
+    //                (value_of(midpoints[2].x), value_of(midpoints[2].y)),
+    //                (value_of(midpoints[3].x), value_of(midpoints[3].y))],
+    //               [(10.0, 105.0),
+    //                (155.0, 300.0),
+    //                (250.0, 205.0),
+    //                (105.0, 10.0)]);
+    //}
+
+    //#[test]
+    //fn remove_constraint() {
+    //    let (value_of, update_values) = new_values();
+
+    //    let mut solver = Solver::new();
+
+    //    let val = Variable::new();
+
+    //    let constraint: Constraint<Variable> = val | EQ(REQUIRED) | 100.0;
+    //    solver.add_constraint(constraint.clone()).unwrap();
+    //    update_values(solver.fetch_changes());
+
+    //    assert_eq!(value_of(val), 100.0);
+
+    //    solver.remove_constraint(&constraint).unwrap();
+    //    solver.add_constraint(val | EQ(REQUIRED) | 0.0).unwrap();
+    //    update_values(solver.fetch_changes());
+
+    //    assert_eq!(value_of(val), 0.0);
+    //}
+}
