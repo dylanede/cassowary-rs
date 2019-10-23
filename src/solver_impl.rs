@@ -393,6 +393,9 @@ impl<T: Debug + Clone + Eq + Hash> Solver<T>
             }
         }
 
+        //let ref mut objective = self.objective;
+        let mut objective = self.objective.clone();
+
         // Add the necessary slack, error, and dummy variables.
         let tag = match constraint.op() {
             RelationalOperator::GreaterOrEqual |
@@ -409,7 +412,7 @@ impl<T: Debug + Clone + Eq + Hash> Solver<T>
                     let error = Symbol(self.id_tick, SymbolType::Error);
                     self.id_tick += 1;
                     row.insert_symbol(error, -coeff);
-                    self.objective.insert_symbol(error, constraint.strength());
+                    objective.insert_symbol(error, constraint.strength());
                     Tag {
                         marker: slack,
                         other: error
@@ -429,8 +432,8 @@ impl<T: Debug + Clone + Eq + Hash> Solver<T>
                     self.id_tick += 1;
                     row.insert_symbol(errplus, -1.0); // v = eplus - eminus
                     row.insert_symbol(errminus, 1.0); // v - eplus + eminus = 0
-                    self.objective.insert_symbol(errplus, constraint.strength());
-                    self.objective.insert_symbol(errminus, constraint.strength());
+                    objective.insert_symbol(errplus, constraint.strength());
+                    objective.insert_symbol(errminus, constraint.strength());
                     Tag {
                         marker: errplus,
                         other: errminus
@@ -515,9 +518,9 @@ impl<T: Debug + Clone + Eq + Hash> Solver<T>
             }
         }
         self.objective.substitute(symbol, row);
-        if let Some(artificial) = self.artificial.as_mut() {
+        self.artificial.as_mut().map(|artificial| {
             artificial.substitute(symbol, row);
-        }
+        });
     }
 
     /// Optimize the system for the given objective function.
@@ -525,13 +528,16 @@ impl<T: Debug + Clone + Eq + Hash> Solver<T>
     /// This method performs iterations of Phase 2 of the simplex method
     /// until the objective function reaches a minimum.
     fn optimise(&mut self, objective: &Row) -> Result<(), InternalSolverError> {
+        let mut count = 0;
         loop {
             let entering = objective.get_entering_symbol();
             if entering.type_() == SymbolType::Invalid {
                 return Ok(());
             }
-            let (leaving, mut row) = try!(self.get_leaving_row(entering)
-                             .ok_or(InternalSolverError("The objective is unbounded")));
+            let (leaving, mut row) =
+                self
+                .get_leaving_row(entering)
+                .ok_or(InternalSolverError("The objective is unbounded"))?;
             // pivot the entering symbol into the basis
             row.solve_for_symbols(leaving, entering);
             self.substitute(entering, &row);
@@ -540,6 +546,8 @@ impl<T: Debug + Clone + Eq + Hash> Solver<T>
                 self.var_changed(v);
             }
             self.rows.insert(entering, row);
+            println!("Ran optimize {:?}", count);
+            count +=1 ;
         }
     }
 

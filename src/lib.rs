@@ -709,9 +709,19 @@ mod tests {
         names.insert(box2.left, "box2.left");
         names.insert(box2.right, "box2.right");
         let mut solver = Solver::new();
+
         //solver
-        //    .add_constraint(window_width |EQ(REQUIRED)| 1000.0)
-        //    .expect("Could not add window width = 1000");
+        //    .add_edit_variable(window_width, STRONG)
+        //    .expect("Could not add window width edit var");
+        //solver
+        //    .suggest_value(window_width, 1000.0)
+        //    .expect("Could not suggest window width = 1000");
+        solver
+            .add_constraint(window_width |GE(REQUIRED)| 0.0)
+            .expect("Could not add window width >= 0");
+        solver
+            .add_constraint(window_width |LE(REQUIRED)| 1000.0)
+            .expect("Could not add window width <= 1000.0");
         solver
             .add_constraint(box1.left |EQ(REQUIRED)| 0.0)
             .expect("Could not add left align constraint");
@@ -721,29 +731,26 @@ mod tests {
         solver
             .add_constraint(box2.left |GE(REQUIRED)| box1.right)
             .expect("Could not add no overlap constraint");
+
         solver
-            .add_constraint(box1.right - box1.left |EQ(WEAK)| 100.0)
+            .add_constraint(box1.right |EQ(WEAK)| box1.left + 50.0)
             .expect("Could not add box1 width constraint");
         solver
-            .add_constraint(box2.right - box2.left |EQ(WEAK)| 100.0)
+            .add_constraint(box2.right |EQ(WEAK)| box2.left + 100.0)
             .expect("Could not add box2 width constraint");
+
         solver
             .add_constraint(box1.left |LE(REQUIRED)| box1.right)
-            .expect("Could not add box1 left > box1 right constraint");
+            .expect("Could not add box1 positive width constraint");
         solver
             .add_constraint(box2.left |LE(REQUIRED)| box2.right)
-            .expect("Could not add positive widths 2 constraint");
-        solver
-            .add_edit_variable(window_width, STRONG)
-            .expect("Could not add window width edit var");
-        solver
-            .suggest_value(window_width, 300.0)
-            .expect("Could not suggest window width = 300");
-        print_changes(&names, solver.fetch_changes());
-        solver
-            .suggest_value(window_width, 75.0)
-            .expect("Could not suggest window width = 75");
-        print_changes(&names, solver.fetch_changes());
+            .expect("Could not add box2 positive width constraint");
+
+        //print_changes(&names, solver.fetch_changes());
+        //solver
+        //    .suggest_value(window_width, 75.0)
+        //    .expect("Could not suggest window width = 75");
+        //print_changes(&names, solver.fetch_changes());
         //solver.add_constraint(
         //    (box1.right - box1.left) / 50.0 |EQ(MEDIUM)| (box2.right - box2.left) / 100.0
         //).unwrap();
