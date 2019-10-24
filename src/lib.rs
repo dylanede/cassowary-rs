@@ -31,8 +31,10 @@
 //!
 //! First we need to include the relevant parts of `cassowary`:
 //!
-//! ```
-//! use cassowary::{ Solver, Variable };
+//! ```ignore
+//! extern crate cassowary_variable;
+//! use cassowary::{ Solver };
+//! use cassowary_variable::Variable;
 //! use cassowary::WeightedRelation::*;
 //! use cassowary::strength::{ WEAK, MEDIUM, STRONG, REQUIRED };
 //! ```
@@ -157,58 +159,10 @@
 //! to control the behaviour when the preferred widths cannot both be satisfied. In this example we are going
 //! to constrain the boxes to try to maintain a ratio between their widths.
 //!
-//! ```
-//! # use cassowary::{ Solver, Variable };
-//! # use cassowary::WeightedRelation::*;
-//! # use cassowary::strength::{ WEAK, MEDIUM, STRONG, REQUIRED };
-//! #
-//! # use std::collections::HashMap;
-//! # let mut names = HashMap::new();
-//! # fn print_changes(names: &HashMap<Variable, &'static str>, changes: &[(Variable, f64)]) {
-//! #     println!("Changes:");
-//! #     for &(ref var, ref val) in changes {
-//! #         println!("{}: {}", names[var], val);
-//! #     }
-//! # }
-//! #
-//! # let window_width = Variable::new();
-//! # names.insert(window_width, "window_width");
-//! # struct Element {
-//! #    left: Variable,
-//! #    right: Variable
-//! # }
-//! # let box1 = Element {
-//! #     left: Variable::new(),
-//! #     right: Variable::new()
-//! # };
-//! # names.insert(box1.left, "box1.left");
-//! # names.insert(box1.right, "box1.right");
-//! # let box2 = Element {
-//! #     left: Variable::new(),
-//! #     right: Variable::new()
-//! # };
-//! # names.insert(box2.left, "box2.left");
-//! # names.insert(box2.right, "box2.right");
-//! # let mut solver = Solver::new();
-//! # solver.add_constraints(&[window_width |GE(REQUIRED)| 0.0, // positive window width
-//! #                          box1.left |EQ(REQUIRED)| 0.0, // left align
-//! #                          box2.right |EQ(REQUIRED)| window_width, // right align
-//! #                          box2.left |GE(REQUIRED)| box1.right, // no overlap
-//! #                          // positive widths
-//! #                          box1.left |LE(REQUIRED)| box1.right,
-//! #                          box2.left |LE(REQUIRED)| box2.right,
-//! #                          // preferred widths:
-//! #                          box1.right - box1.left |EQ(WEAK)| 50.0,
-//! #                          box2.right - box2.left |EQ(WEAK)| 100.0]).unwrap();
-//! # solver.add_edit_variable(window_width, STRONG).unwrap();
-//! # solver.suggest_value(window_width, 300.0).unwrap();
-//! # print_changes(&names, solver.fetch_changes());
-//! # solver.suggest_value(window_width, 75.0);
-//! # print_changes(&names, solver.fetch_changes());
-//! solver.add_constraint(
-//!     (box1.right - box1.left) / 50.0 |EQ(MEDIUM)| (box2.right - box2.left) / 100.0
-//!     ).unwrap();
-//! print_changes(&names, solver.fetch_changes());
+//! These docs are all out of date:
+//!
+//! ```ignore
+
 //! ```
 //!
 //! Now the result gives values that maintain the ratio between the sizes of the two boxes:
@@ -225,100 +179,112 @@
 //! One thing that this example exposes is that this crate is a rather low level library. It does not have
 //! any inherent knowledge of user interfaces, directions or boxes. Thus for use in a user interface this
 //! crate should ideally be wrapped by a higher level API, which is outside the scope of this crate.
-use std::sync::Arc;
+extern crate ordered_float;
+
 use std::collections::HashMap;
-use std::collections::hash_map::{Entry};
+use std::collections::hash_map::Entry;
+use ordered_float::OrderedFloat;
 
 mod solver_impl;
 mod operators;
+pub use operators::Constrainable;
+#[macro_use]
+pub mod derive_syntax;
 
-static VARIABLE_ID: ::std::sync::atomic::AtomicUsize = ::std::sync::atomic::ATOMIC_USIZE_INIT;
-
-/// Identifies a variable for the constraint solver.
-/// Each new variable is unique in the view of the solver, but copying or cloning the variable produces
-/// a copy of the same variable.
-#[derive(Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct Variable(usize);
-
-impl Variable {
-    /// Produces a new unique variable for use in constraint solving.
-    pub fn new() -> Variable {
-        Variable(VARIABLE_ID.fetch_add(1, ::std::sync::atomic::Ordering::Relaxed))
-    }
-}
 
 /// A variable and a coefficient to multiply that variable by. This is a sub-expression in
 /// a constraint equation.
-#[derive(Copy, Clone, Debug)]
-pub struct Term {
-    pub variable: Variable,
-    pub coefficient: f64
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub struct Term<T> {
+    pub variable: T,
+    pub coefficient: OrderedFloat<f64>
 }
 
-impl Term {
+impl<T> Term<T> {
     /// Construct a new Term from a variable and a coefficient.
-    fn new(variable: Variable, coefficient: f64) -> Term {
+    pub fn new(variable: T, coefficient: f64) -> Term<T> {
         Term {
             variable: variable,
-            coefficient: coefficient
+            coefficient: coefficient.into()
         }
     }
 }
 
 /// An expression that can be the left hand or right hand side of a constraint equation.
 /// It is a linear combination of variables, i.e. a sum of variables weighted by coefficients, plus an optional constant.
-#[derive(Clone, Debug)]
-pub struct Expression {
-    pub terms: Vec<Term>,
-    pub constant: f64
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct Expression<T> {
+    pub terms: Vec<Term<T>>,
+    pub constant: OrderedFloat<f64>
 }
 
-impl Expression {
+impl<T: Clone> Expression<T> {
     /// Constructs an expression of the form _n_, where n is a constant real number, not a variable.
-    pub fn from_constant(v: f64) -> Expression {
+    pub fn from_constant(v: f64) -> Expression<T> {
         Expression {
             terms: Vec::new(),
-            constant: v
+            constant: v.into()
         }
     }
     /// Constructs an expression from a single term. Forms an expression of the form _n x_
     /// where n is the coefficient, and x is the variable.
-    pub fn from_term(term: Term) -> Expression {
+    pub fn from_term(term: Term<T>) -> Expression<T> {
         Expression {
             terms: vec![term],
-            constant: 0.0
+            constant: 0.0.into()
         }
     }
     /// General constructor. Each `Term` in `terms` is part of the sum forming the expression, as well as `constant`.
-    pub fn new(terms: Vec<Term>, constant: f64) -> Expression {
+    pub fn new(terms: Vec<Term<T>>, constant: f64) -> Expression<T> {
         Expression {
             terms: terms,
-            constant: constant
+            constant: constant.into()
         }
     }
     /// Mutates this expression by multiplying it by minus one.
     pub fn negate(&mut self) {
-        self.constant = -self.constant;
+        self.constant = (-(self.constant.into_inner())).into();
         for t in &mut self.terms {
-            *t = -*t;
+            let t2 = t.clone();
+            *t = -t2;
         }
     }
 }
 
-impl From<f64> for Expression {
-    fn from(v: f64) -> Expression {
+impl<Var: Clone> Constrainable<Var> for Expression<Var> {
+    fn equal_to<X>(self, x: X) -> Constraint<Var> where X: Into<Expression<Var>> + Clone {
+        self |WeightedRelation::EQ(strength::REQUIRED) | x.into()
+    }
+
+    fn greater_than_or_equal_to<X>(self, x: X) -> Constraint<Var> where X: Into<Expression<Var>> + Clone {
+        self |WeightedRelation::GE(strength::REQUIRED) | x.into()
+    }
+
+    fn less_than_or_equal_to<X>(self, x: X) -> Constraint<Var> where X: Into<Expression<Var>> + Clone {
+        self |WeightedRelation::LE(strength::REQUIRED) | x.into()
+    }
+}
+
+impl<T: Clone> From<f64> for Expression<T> {
+    fn from(v: f64) -> Expression<T> {
         Expression::from_constant(v)
     }
 }
 
-impl From<Variable> for Expression {
-    fn from(v: Variable) -> Expression {
-        Expression::from_term(Term::new(v, 1.0))
-    }
+impl<T: Clone> From<i32> for Expression<T> {
+  fn from(v: i32) -> Expression<T> {
+    Expression::from_constant(v as f64)
+  }
 }
 
-impl From<Term> for Expression {
-    fn from(t: Term) -> Expression {
+impl<T: Clone> From<u32> for Expression<T> {
+  fn from(v: u32) -> Expression<T> {
+    Expression::from_constant(v as f64)
+  }
+}
+
+impl<T: Clone> From<Term<T>> for Expression<T> {
+    fn from(t: Term<T>) -> Expression<T> {
         Expression::from_term(t)
     }
 }
@@ -382,61 +348,51 @@ impl std::fmt::Display for RelationalOperator {
     }
 }
 
-#[derive(Debug)]
-struct ConstraintData {
-    expression: Expression,
-    strength: f64,
-    op: RelationalOperator
-}
 
 /// A constraint, consisting of an equation governed by an expression and a relational operator,
 /// and an associated strength.
-#[derive(Clone, Debug)]
-pub struct Constraint(Arc<ConstraintData>);
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct Constraint<T>{
+    expression: Expression<T>,
+    strength: OrderedFloat<f64>,
+    op: RelationalOperator
+}
 
-impl Constraint {
+
+impl<T> Constraint<T> {
     /// Construct a new constraint from an expression, a relational operator and a strength.
     /// This corresponds to the equation `e op 0.0`, e.g. `x + y >= 0.0`. For equations with a non-zero
     /// right hand side, subtract it from the equation to give a zero right hand side.
-    pub fn new(e: Expression, op: RelationalOperator, strength: f64) -> Constraint {
-        Constraint(Arc::new(ConstraintData {
+    pub fn new(e: Expression<T>, op: RelationalOperator, strength: f64) -> Constraint<T> {
+        Constraint{
             expression: e,
             op: op,
-            strength: strength
-        }))
+            strength: strength.into()
+        }
     }
     /// The expression of the left hand side of the constraint equation.
-    pub fn expr(&self) -> &Expression {
-        &self.0.expression
+    pub fn expr(&self) -> &Expression<T> {
+        &self.expression
     }
     /// The relational operator governing the constraint.
     pub fn op(&self) -> RelationalOperator {
-        self.0.op
+        self.op
     }
     /// The strength of the constraint that the solver will use.
     pub fn strength(&self) -> f64 {
-        self.0.strength
+        self.strength.into_inner()
+    }
+    /// Set the strength in builder-style
+    pub fn with_strength(self, s:f64) -> Self {
+        let mut c = self;
+        c.strength = s.into();
+        c
     }
 }
-
-impl ::std::hash::Hash for Constraint {
-    fn hash<H: ::std::hash::Hasher>(&self, hasher: &mut H) {
-        use ::std::ops::Deref;
-        hasher.write_usize(self.0.deref() as *const _ as usize);
-    }
-}
-
-impl PartialEq for Constraint {
-    fn eq(&self, other: &Constraint) -> bool {
-        use ::std::ops::Deref;
-        self.0.deref() as *const _ == other.0.deref() as *const _
-    }
-}
-
-impl Eq for Constraint {}
 
 /// This is part of the syntactic sugar used for specifying constraints. This enum should be used as part of a
 /// constraint expression. See the module documentation for more information.
+#[derive(Debug)]
 pub enum WeightedRelation {
     /// `==`
     EQ(f64),
@@ -458,9 +414,11 @@ impl From<WeightedRelation> for (RelationalOperator, f64) {
 
 /// This is an intermediate type used in the syntactic sugar for specifying constraints. You should not use it
 /// directly.
-pub struct PartialConstraint(Expression, WeightedRelation);
+#[derive(Debug)]
+pub struct PartialConstraint<T>(pub Expression<T>, pub WeightedRelation);
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug)]
 enum SymbolType {
     Invalid,
     External,
@@ -470,17 +428,59 @@ enum SymbolType {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug)]
 struct Symbol(usize, SymbolType);
 
 impl Symbol {
+    /// Choose the subject for solving for the row.
+    ///
+    /// This method will choose the best subject for using as the solve
+    /// target for the row. An invalid symbol will be returned if there
+    /// is no valid target.
+    ///
+    /// The symbols are chosen according to the following precedence:
+    ///
+    /// 1) The first symbol representing an external variable.
+    /// 2) A negative slack or error tag variable.
+    ///
+    /// If a subject cannot be found, an invalid symbol will be returned.
+    fn choose_subject(row: &Row, tag: &Tag) -> Symbol {
+        for s in row.cells.keys() {
+            if s.type_() == SymbolType::External {
+                return *s
+            }
+        }
+        if tag.marker.type_() == SymbolType::Slack || tag.marker.type_() == SymbolType::Error {
+            if row.coefficient_for(tag.marker) < 0.0 {
+                return tag.marker;
+            }
+        }
+        if tag.other.type_() == SymbolType::Slack || tag.other.type_() == SymbolType::Error {
+            if row.coefficient_for(tag.other) < 0.0 {
+                return tag.other;
+            }
+        }
+        Symbol::invalid()
+    }
+
     fn invalid() -> Symbol { Symbol(0, SymbolType::Invalid) }
     fn type_(&self) -> SymbolType { self.1 }
 }
 
+
+#[derive(Copy, Clone)]
+#[derive(Debug)]
+struct Tag {
+    marker: Symbol,
+    other: Symbol
+}
+
+
 #[derive(Clone)]
+#[derive(Debug)]
 struct Row {
-    cells: HashMap<Symbol, f64>,
-    constant: f64
+    cells: HashMap<Symbol, OrderedFloat<f64>>,
+    constant: OrderedFloat<f64>
 }
 
 fn near_zero(value: f64) -> bool {
@@ -493,24 +493,26 @@ fn near_zero(value: f64) -> bool {
 }
 
 impl Row {
-    fn new(constant: f64) -> Row {
+    pub fn new(constant: f64) -> Row {
         Row {
             cells: HashMap::new(),
-            constant: constant
+            constant: constant.into()
         }
     }
     fn add(&mut self, v: f64) -> f64 {
-        self.constant += v;
-        self.constant
+        *(self.constant.as_mut()) += v;
+        self.constant.into_inner()
     }
     fn insert_symbol(&mut self, s: Symbol, coefficient: f64) {
         match self.cells.entry(s) {
             Entry::Vacant(entry) => if !near_zero(coefficient) {
-                entry.insert(coefficient);
+                entry.insert(coefficient.into());
             },
             Entry::Occupied(mut entry) => {
-                *entry.get_mut() += coefficient;
-                if near_zero(*entry.get_mut()) {
+                let ofloat = entry.get_mut();
+                let float = ofloat.as_mut();
+                *float += coefficient;
+                if near_zero(*float) {
                     entry.remove();
                 }
             }
@@ -518,10 +520,10 @@ impl Row {
     }
 
     fn insert_row(&mut self, other: &Row, coefficient: f64) -> bool {
-        let constant_diff = other.constant * coefficient;
-        self.constant += constant_diff;
+        let constant_diff = other.constant.as_ref() * coefficient;
+        *self.constant.as_mut() += constant_diff;
         for (s, v) in &other.cells {
-            self.insert_symbol(*s, v * coefficient);
+            self.insert_symbol(*s, v.into_inner() * coefficient);
         }
         constant_diff != 0.0
     }
@@ -531,20 +533,20 @@ impl Row {
     }
 
     fn reverse_sign(&mut self) {
-        self.constant = -self.constant;
+        *self.constant.as_mut() *= -1.0;
         for (_, v) in &mut self.cells {
-            *v = -*v;
+            *v.as_mut() *= -1.0;
         }
     }
 
     fn solve_for_symbol(&mut self, s: Symbol) {
         let coeff = -1.0 / match self.cells.entry(s) {
-            Entry::Occupied(entry) => entry.remove(),
+            Entry::Occupied(entry) => entry.remove().into_inner(),
             Entry::Vacant(_) => unreachable!()
         };
-        self.constant *= coeff;
+        *self.constant.as_mut() *= coeff;
         for (_, v) in &mut self.cells {
-            *v *= coeff;
+            *v.as_mut() *= coeff;
         }
     }
 
@@ -554,15 +556,54 @@ impl Row {
     }
 
     fn coefficient_for(&self, s: Symbol) -> f64 {
-        self.cells.get(&s).cloned().unwrap_or(0.0)
+        self.cells.get(&s).cloned().map(|o| o.into_inner()).unwrap_or(0.0)
     }
 
     fn substitute(&mut self, s: Symbol, row: &Row) -> bool {
         if let Some(coeff) = self.cells.remove(&s) {
-            self.insert_row(row, coeff)
+            self.insert_row(row, coeff.into())
         } else {
             false
         }
+    }
+
+    /// Test whether a row is composed of all dummy variables.
+    fn all_dummies(&self) -> bool {
+        for symbol in self.cells.keys() {
+            if symbol.type_() != SymbolType::Dummy {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Get the first Slack or Error symbol in the row.
+    ///
+    /// If no such symbol is present, and Invalid symbol will be returned.
+    /// Never returns an External symbol
+    fn any_pivotable_symbol(&self) -> Symbol {
+        for symbol in self.cells.keys() {
+            if symbol.type_() == SymbolType::Slack || symbol.type_() == SymbolType::Error {
+                return *symbol;
+            }
+        }
+        Symbol::invalid()
+    }
+
+    /// Compute the entering variable for a pivot operation.
+    ///
+    /// This method will return first symbol in the objective function which
+    /// is non-dummy and has a coefficient less than zero. If no symbol meets
+    /// the criteria, it means the objective function is at a minimum, and an
+    /// invalid symbol is returned.
+    /// Could return an External symbol
+    fn get_entering_symbol(&self) -> Symbol {
+        for (symbol, value) in &self.cells {
+            if symbol.type_() != SymbolType::Dummy && *value.as_ref() < 0.0 {
+                return symbol.clone();
+            }
+        }
+        Symbol::invalid()
     }
 }
 
@@ -621,3 +662,229 @@ pub enum SuggestValueError {
 struct InternalSolverError(&'static str);
 
 pub use solver_impl::Solver;
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::strength::*;
+    use super::WeightedRelation::*;
+    //use std::cell::RefCell;
+    use std::collections::HashMap;
+    //use std::rc::Rc;
+    use std::ops::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+
+    static NEXT_K:AtomicUsize = AtomicUsize::new(0);
+
+    #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+    pub struct Variable(usize);
+    derive_syntax_for!(Variable);
+    derive_bitor_for!(Variable);
+
+    impl Variable {
+        pub fn new() -> Variable {
+            Variable(NEXT_K.fetch_add(1, Ordering::Relaxed))
+        }
+    }
+
+    #[test]
+    fn example() {
+        let mut names = HashMap::new();
+        fn print_changes(names: &HashMap<Variable, &'static str>, changes: &[(Variable, f64)]) {
+            println!("Changes:");
+            for &(ref var, ref val) in changes {
+                println!("{}: {}", names[var], val);
+            }
+        }
+
+        let window_width = Variable::new();
+        names.insert(window_width, "window_width");
+        struct Element {
+            left: Variable,
+            right: Variable
+        }
+        let box1 = Element {
+            left: Variable::new(),
+            right: Variable::new()
+        };
+        names.insert(box1.left, "box1.left");
+        names.insert(box1.right, "box1.right");
+        let box2 = Element {
+            left: Variable::new(),
+            right: Variable::new()
+        };
+        names.insert(box2.left, "box2.left");
+        names.insert(box2.right, "box2.right");
+        let mut solver = Solver::new();
+
+        //solver
+        //    .add_edit_variable(window_width, STRONG)
+        //    .expect("Could not add window width edit var");
+        //solver
+        //    .suggest_value(window_width, 1000.0)
+        //    .expect("Could not suggest window width = 1000");
+        solver
+            .add_constraint(window_width |GE(REQUIRED)| 0.0)
+            .expect("Could not add window width >= 0");
+        solver
+            .add_constraint(window_width |LE(REQUIRED)| 1000.0)
+            .expect("Could not add window width <= 1000.0");
+        solver
+            .add_constraint(box1.left |EQ(REQUIRED)| 0.0)
+            .expect("Could not add left align constraint");
+        solver
+            .add_constraint(box2.right |EQ(REQUIRED)| window_width)
+            .expect("Could not add right align constraint");
+        solver
+            .add_constraint(box2.left |GE(REQUIRED)| box1.right)
+            .expect("Could not add no overlap constraint");
+
+        solver
+            .add_constraint(box1.right |EQ(WEAK)| box1.left + 50.0)
+            .expect("Could not add box1 width constraint");
+        solver
+            .add_constraint(box2.right |EQ(WEAK)| box2.left + 100.0)
+            .expect("Could not add box2 width constraint");
+
+        solver
+            .add_constraint(box1.left |LE(REQUIRED)| box1.right)
+            .expect("Could not add box1 positive width constraint");
+        solver
+            .add_constraint(box2.left |LE(REQUIRED)| box2.right)
+            .expect("Could not add box2 positive width constraint");
+
+        //print_changes(&names, solver.fetch_changes());
+        //solver
+        //    .suggest_value(window_width, 75.0)
+        //    .expect("Could not suggest window width = 75");
+        //print_changes(&names, solver.fetch_changes());
+        //solver.add_constraint(
+        //    (box1.right - box1.left) / 50.0 |EQ(MEDIUM)| (box2.right - box2.left) / 100.0
+        //).unwrap();
+        print_changes(&names, solver.fetch_changes());
+    }
+
+    // #[test]
+    fn _test_quadrilateral() {
+        struct Point {
+            x: Variable,
+            y: Variable
+        }
+        impl Point {
+            fn new() -> Point {
+                Point {
+                    x: Variable::new(),
+                    y: Variable::new()
+                }
+            }
+        }
+
+        let points = [Point::new(),
+                      Point::new(),
+                      Point::new(),
+                      Point::new()];
+        let point_starts = [(10.0, 10.0), (10.0, 200.0), (200.0, 200.0), (200.0, 10.0)];
+        let midpoints = [Point::new(),
+                         Point::new(),
+                         Point::new(),
+                         Point::new()];
+        let mut solver = Solver::new();
+        let mut weight = 1.0;
+        let multiplier = 2.0;
+        for i in 0..4 {
+            solver
+                .add_constraints(
+                    vec![points[i].x |EQ(WEAK * weight)| point_starts[i].0,
+                         points[i].y |EQ(WEAK * weight)| point_starts[i].1]
+                )
+                .expect("Could not add initial quad points");
+            weight *= multiplier;
+        }
+
+        for (start, end) in vec![(0, 1), (1, 2), (2, 3), (3, 0)] {
+            solver
+                .add_constraints(
+                    vec![midpoints[start].x |EQ(REQUIRED)| (points[start].x + points[end].x) / 2.0,
+                         midpoints[start].y |EQ(REQUIRED)| (points[start].y + points[end].y) / 2.0]
+                )
+                .expect("Could not add quad midpoints");
+        }
+
+        solver
+            .add_constraints(
+                vec![points[0].x + 20.0 |LE(STRONG)| points[2].x,
+                     points[0].x + 20.0 |LE(STRONG)| points[3].x,
+
+                     points[1].x + 20.0 |LE(STRONG)| points[2].x,
+                     points[1].x + 20.0 |LE(STRONG)| points[3].x,
+
+                     points[0].y + 20.0 |LE(STRONG)| points[1].y,
+                     points[0].y + 20.0 |LE(STRONG)| points[2].y,
+
+                     points[3].y + 20.0 |LE(STRONG)| points[1].y,
+                     points[3].y + 20.0 |LE(STRONG)| points[2].y]
+            )
+            .expect("Could not add quad midpoint constraints");
+
+        for point in &points {
+            solver
+                .add_constraints(
+                    vec![point.x |GE(REQUIRED)| 0.0,
+                         point.y |GE(REQUIRED)| 0.0,
+
+                         point.x |LE(REQUIRED)| 500.0,
+                         point.y |LE(REQUIRED)| 500.0]
+                )
+                .expect("Could not add required bounds on quad");
+        }
+
+        assert_eq!([(solver.get_value(midpoints[0].x), solver.get_value(midpoints[0].y)),
+                    (solver.get_value(midpoints[1].x), solver.get_value(midpoints[1].y)),
+                    (solver.get_value(midpoints[2].x), solver.get_value(midpoints[2].y)),
+                    (solver.get_value(midpoints[3].x), solver.get_value(midpoints[3].y))],
+                   [(10.0, 105.0),
+                    (105.0, 200.0),
+                    (200.0, 105.0),
+                    (105.0, 10.0)]);
+
+        solver.add_edit_variable(points[2].x, STRONG).expect("Could not add x edit variable for 2nd point");
+        solver.add_edit_variable(points[2].y, STRONG).expect("Could not add y edit variable for 2nd point");
+        solver.suggest_value(points[2].x, 300.0).expect("Could not suggest value for x edit variable for 2nd point");
+        solver.suggest_value(points[2].y, 400.0).expect("Could not suggest value for y edit variable for 2nd point");
+
+        assert_eq!([(solver.get_value(points[0].x), solver.get_value(points[0].y)),
+                    (solver.get_value(points[1].x), solver.get_value(points[1].y)),
+                    (solver.get_value(points[2].x), solver.get_value(points[2].y)),
+                    (solver.get_value(points[3].x), solver.get_value(points[3].y))],
+                   [(10.0, 10.0),
+                    (10.0, 200.0),
+                    (300.0, 400.0),
+                    (200.0, 10.0)]);
+
+        assert_eq!([(solver.get_value(midpoints[0].x), solver.get_value(midpoints[0].y)),
+                    (solver.get_value(midpoints[1].x), solver.get_value(midpoints[1].y)),
+                    (solver.get_value(midpoints[2].x), solver.get_value(midpoints[2].y)),
+                    (solver.get_value(midpoints[3].x), solver.get_value(midpoints[3].y))],
+                   [(10.0, 105.0),
+                    (155.0, 300.0),
+                    (250.0, 205.0),
+                    (105.0, 10.0)]);
+    }
+
+    #[test]
+    fn can_add_and_remove_constraints() {
+        let mut solver = Solver::new();
+
+        let var = Variable(0);
+
+        let constraint: Constraint<Variable> = var | EQ(REQUIRED) | 100.0;
+        solver.add_constraint(constraint.clone()).unwrap();
+        assert_eq!(solver.get_value(var), 100.0);
+
+        solver.remove_constraint(&constraint).unwrap();
+        solver.add_constraint(var | EQ(REQUIRED) | 0.0).unwrap();
+        assert_eq!(solver.get_value(var), 0.0);
+    }
+}

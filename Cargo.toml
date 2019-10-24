@@ -1,7 +1,7 @@
 [package]
 name = "cassowary"
-version = "0.3.0"
-authors = ["Dylan Ede <dylanede@googlemail.com>"]
+version = "0.4.0"
+authors = ["Dylan Ede <dylanede@googlemail.com>", "Schell Scivally <schell@formation.ai>"]
 description = """
 A Rust implementation of the Cassowary linear constraint solving algorithm.
 
@@ -16,3 +16,4 @@ license = "MIT / Apache-2.0"
 keywords = ["constraint", "simplex", "user", "interface", "layout"]
 
 [dependencies]
+ordered-float = "1.0"
