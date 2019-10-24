@@ -22,6 +22,15 @@ use std::fmt::Debug;
 use std::collections::hash_map::Entry;
 
 
+fn print_inc(msg: &str) {
+    println!(">{}", msg);
+}
+
+fn print_dec(msg: &str) {
+    println!("<{}", msg);
+}
+
+
 #[derive(Clone)]
 #[derive(Debug)]
 struct EditInfo<T> {
@@ -45,8 +54,7 @@ where
     rows: HashMap<Symbol, Row>,
     edits: HashMap<T, EditInfo<T>>,
     infeasible_rows: Vec<Symbol>, // never contains external symbols
-    objective: Row,
-    artificial: Option<Row>,
+    objective: Option<Row>,
     id_tick: usize
 }
 
@@ -64,8 +72,7 @@ impl<T: Debug + Clone + Eq + Hash> Solver<T>
             rows: HashMap::new(),
             edits: HashMap::new(),
             infeasible_rows: Vec::new(),
-            objective: Row::new(0.0),
-            artificial: None,
+            objective: Some(Row::new(0.0)),
             id_tick: 1
         }
     }
@@ -132,8 +139,9 @@ impl<T: Debug + Clone + Eq + Hash> Solver<T>
         // Optimizing after each constraint is added performs less
         // aggregate work due to a smaller average system size. It
         // also ensures the solver remains in a consistent state.
-        let objective = self.objective.clone();
-        self.optimise(&objective).map_err(|e| AddConstraintError::InternalSolverError(e.0))?;
+        let mut objective = self.objective.take().expect("Could not take objective in add_constraint");
+        self.optimise(&mut objective).map_err(|e| AddConstraintError::InternalSolverError(e.0))?;
+        self.objective = Some(objective);
         Ok(())
     }
 
@@ -163,8 +171,9 @@ impl<T: Debug + Clone + Eq + Hash> Solver<T>
         // Optimizing after each constraint is removed ensures that the
         // solver remains consistent. It makes the solver api easier to
         // use at a small tradeoff for speed.
-        let objective = self.objective.clone();
-        self.optimise(&objective).map_err(|e| RemoveConstraintError::InternalSolverError(e.0))?;
+        let mut objective = self.objective.take().expect("Could not take objective in remove_constraint");
+        self.optimise(&mut objective).map_err(|e| RemoveConstraintError::InternalSolverError(e.0))?;
+        self.objective = Some(objective);
 
         // Check for and decrease the reference count for variables referenced by the constraint
         // If the reference count is zero remove the variable from the variable map
@@ -342,8 +351,7 @@ impl<T: Debug + Clone + Eq + Hash> Solver<T>
         self.should_clear_changes = false;
         self.edits.clear();
         self.infeasible_rows.clear();
-        self.objective = Row::new(0.0);
-        self.artificial = None;
+        self.objective = Some(Row::new(0.0));
         self.id_tick = 1;
     }
 
@@ -393,9 +401,7 @@ impl<T: Debug + Clone + Eq + Hash> Solver<T>
             }
         }
 
-        //let ref mut objective = self.objective;
-        let mut objective = self.objective.clone();
-
+        let mut objective = self.objective.take().expect("Could not take objective in create_row");
         // Add the necessary slack, error, and dummy variables.
         let tag = match constraint.op() {
             RelationalOperator::GreaterOrEqual |
@@ -449,11 +455,14 @@ impl<T: Debug + Clone + Eq + Hash> Solver<T>
                 }
             }
         };
+        self.objective = Some(objective);
 
         // Ensure the row has a positive constant.
         if *row.constant.as_ref() < 0.0 {
             row.reverse_sign();
         }
+
+        print_dec("objective:ref mut out");
         (row, tag)
     }
 
@@ -465,14 +474,12 @@ impl<T: Debug + Clone + Eq + Hash> Solver<T>
         let art = Symbol(self.id_tick, SymbolType::Slack);
         self.id_tick += 1;
         self.rows.insert(art, row.clone());
-        self.artificial = Some(row.clone());
 
         // Optimize the artificial objective. This is successful
         // only if the artificial objective is optimized to zero.
-        let artificial = self.artificial.as_ref().unwrap().clone();
-        self.optimise(&artificial)?;
+        let mut artificial:Row = row.clone();
+        self.optimise(&mut artificial)?;
         let success = near_zero(*artificial.constant.as_ref());
-        self.artificial = None;
 
         // If the artificial variable is basic, pivot the row so that
         // it becomes basic. If the row is constant, exit early.
@@ -493,7 +500,10 @@ impl<T: Debug + Clone + Eq + Hash> Solver<T>
         for (_, row) in &mut self.rows {
             row.remove(art);
         }
-        self.objective.remove(art);
+        self.objective
+            .as_mut()
+            .expect("Could not mutate objective in add_with_artificial_variable")
+            .remove(art);
         Ok(success)
     }
 
@@ -517,22 +527,19 @@ impl<T: Debug + Clone + Eq + Hash> Solver<T>
                 self.infeasible_rows.push(other_symbol);
             }
         }
-        self.objective.substitute(symbol, row);
-        self.artificial.as_mut().map(|artificial| {
-            artificial.substitute(symbol, row);
-        });
     }
 
     /// Optimize the system for the given objective function.
     ///
     /// This method performs iterations of Phase 2 of the simplex method
     /// until the objective function reaches a minimum.
-    fn optimise(&mut self, objective: &Row) -> Result<(), InternalSolverError> {
-        let mut count = 0;
-        loop {
+    ///
+    /// Returns the optimized objective function.
+    fn optimise(&mut self, objective: &mut Row) -> Result<(), InternalSolverError> {
+        'optimisation: loop {
             let entering = objective.get_entering_symbol();
             if entering.type_() == SymbolType::Invalid {
-                return Ok(());
+                break 'optimisation;
             }
             let (leaving, mut row) =
                 self
@@ -541,14 +548,14 @@ impl<T: Debug + Clone + Eq + Hash> Solver<T>
             // pivot the entering symbol into the basis
             row.solve_for_symbols(leaving, entering);
             self.substitute(entering, &row);
+            objective.substitute(entering, &row);
             if entering.type_() == SymbolType::External && *row.constant.as_ref() != 0.0 {
                 let v = self.var_for_symbol[&entering].clone();
                 self.var_changed(v);
             }
             self.rows.insert(entering, row);
-            println!("Ran optimize {:?}", count);
-            count +=1 ;
         }
+        Ok(())
     }
 
     /// Optimize the system using the dual of the simplex method.
@@ -599,10 +606,12 @@ impl<T: Debug + Clone + Eq + Hash> Solver<T>
     fn get_dual_entering_symbol(&self, row: &Row) -> Symbol {
         let mut entering = Symbol::invalid();
         let mut ratio = std::f64::INFINITY;
+        let objective =
+            self.objective.as_ref().expect("Could not get objective in get_dual_entering_symbol");
         for (symbol, value) in &row.cells {
             let value = *value.as_ref();
             if value > 0.0 && symbol.type_() != SymbolType::Dummy {
-                let coeff = self.objective.coefficient_for(*symbol);
+                let coeff = objective.coefficient_for(*symbol);
                 let r = coeff / value;
                 if r < ratio {
                     ratio = r;
@@ -708,11 +717,13 @@ impl<T: Debug + Clone + Eq + Hash> Solver<T>
 
     /// Remove the effects of an error marker on the objective function.
     fn remove_marker_effects(&mut self, marker: Symbol, strength: f64) {
+        print_inc("objective:in remove_marker_effects");
         if let Some(row) = self.rows.get(&marker) {
-            self.objective.insert_row(row, -strength);
+            self.objective.as_mut().expect("Could not get objective remove_marker_effects 1").insert_row(row, -strength);
         } else {
-            self.objective.insert_symbol(marker, -strength);
+            self.objective.as_mut().expect("Could not get objective remove_marker_effects 2").insert_symbol(marker, -strength);
         }
+        print_dec("objective:out remove_marker_effects");
     }
 
     /// Get the stored value for a variable.

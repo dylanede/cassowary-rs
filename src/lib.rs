@@ -673,12 +673,21 @@ mod tests {
     use std::collections::HashMap;
     //use std::rc::Rc;
     use std::ops::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
+
+    static NEXT_K:AtomicUsize = AtomicUsize::new(0);
 
     #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
-    pub struct Variable(u8);
+    pub struct Variable(usize);
     derive_syntax_for!(Variable);
     derive_bitor_for!(Variable);
+
+    impl Variable {
+        pub fn new() -> Variable {
+            Variable(NEXT_K.fetch_add(1, Ordering::Relaxed))
+        }
+    }
 
     #[test]
     fn example() {
@@ -690,21 +699,21 @@ mod tests {
             }
         }
 
-        let window_width = Variable(0);
+        let window_width = Variable::new();
         names.insert(window_width, "window_width");
         struct Element {
             left: Variable,
             right: Variable
         }
         let box1 = Element {
-            left: Variable(1),
-            right: Variable(2)
+            left: Variable::new(),
+            right: Variable::new()
         };
         names.insert(box1.left, "box1.left");
         names.insert(box1.right, "box1.right");
         let box2 = Element {
-            left: Variable(3),
-            right: Variable(4)
+            left: Variable::new(),
+            right: Variable::new()
         };
         names.insert(box2.left, "box2.left");
         names.insert(box2.right, "box2.right");
@@ -757,166 +766,125 @@ mod tests {
         print_changes(&names, solver.fetch_changes());
     }
 
-//    #[derive(Clone, Default)]
-//    struct Values(Rc<RefCell<HashMap<Variable, f64>>>);
-//
-//    impl Values {
-//        fn value_of(&self, var: Variable) -> f64 {
-//            *self.0.borrow().get(&var).unwrap_or(&0.0)
-//        }
-//        fn update_values(&self, changes: &[(Variable, f64)]) {
-//            for &(ref var, ref value) in changes {
-//                println!("{:?} changed to {:?}", var, value);
-//                self.0.borrow_mut().insert(*var, *value);
-//            }
-//        }
-//    }
-//
-//    pub fn new_values() -> (Box<Fn(Variable) -> f64>, Box<Fn(&[(Variable, f64)])>) {
-//        let values = Values(Rc::new(RefCell::new(HashMap::new())));
-//        let value_of = {
-//            let values = values.clone();
-//            move |v| values.value_of(v)
-//        };
-//        let update_values = {
-//            let values = values.clone();
-//            move |changes: &[_]| {
-//                values.update_values(changes);
-//            }
-//        };
-//        (Box::new(value_of), Box::new(update_values))
-//    }
+    // #[test]
+    fn _test_quadrilateral() {
+        struct Point {
+            x: Variable,
+            y: Variable
+        }
+        impl Point {
+            fn new() -> Point {
+                Point {
+                    x: Variable::new(),
+                    y: Variable::new()
+                }
+            }
+        }
 
-    //#[test]
-    //fn test_quadrilateral() {
-    //    struct Point {
-    //        x: Variable,
-    //        y: Variable
-    //    }
-    //    impl Point {
-    //        fn new() -> Point {
-    //            Point {
-    //                x: Variable::new(),
-    //                y: Variable::new()
-    //            }
-    //        }
-    //    }
-    //    let (value_of, update_values) = new_values();
+        let points = [Point::new(),
+                      Point::new(),
+                      Point::new(),
+                      Point::new()];
+        let point_starts = [(10.0, 10.0), (10.0, 200.0), (200.0, 200.0), (200.0, 10.0)];
+        let midpoints = [Point::new(),
+                         Point::new(),
+                         Point::new(),
+                         Point::new()];
+        let mut solver = Solver::new();
+        let mut weight = 1.0;
+        let multiplier = 2.0;
+        for i in 0..4 {
+            solver
+                .add_constraints(
+                    vec![points[i].x |EQ(WEAK * weight)| point_starts[i].0,
+                         points[i].y |EQ(WEAK * weight)| point_starts[i].1]
+                )
+                .expect("Could not add initial quad points");
+            weight *= multiplier;
+        }
 
-    //    let points = [Point::new(),
-    //                  Point::new(),
-    //                  Point::new(),
-    //                  Point::new()];
-    //    let point_starts = [(10.0, 10.0), (10.0, 200.0), (200.0, 200.0), (200.0, 10.0)];
-    //    let midpoints = [Point::new(),
-    //                     Point::new(),
-    //                     Point::new(),
-    //                     Point::new()];
-    //    let mut solver = Solver::new();
-    //    let mut weight = 1.0;
-    //    let multiplier = 2.0;
-    //    for i in 0..4 {
-    //        solver
-    //            .add_constraints(
-    //                vec![points[i].x |EQ(WEAK * weight)| point_starts[i].0,
-    //                     points[i].y |EQ(WEAK * weight)| point_starts[i].1]
-    //            )
-    //            .expect("Could not add initial quad points");
-    //        weight *= multiplier;
-    //    }
+        for (start, end) in vec![(0, 1), (1, 2), (2, 3), (3, 0)] {
+            solver
+                .add_constraints(
+                    vec![midpoints[start].x |EQ(REQUIRED)| (points[start].x + points[end].x) / 2.0,
+                         midpoints[start].y |EQ(REQUIRED)| (points[start].y + points[end].y) / 2.0]
+                )
+                .expect("Could not add quad midpoints");
+        }
 
-    //    for (start, end) in vec![(0, 1), (1, 2), (2, 3), (3, 0)] {
-    //        solver
-    //            .add_constraints(
-    //                vec![midpoints[start].x |EQ(REQUIRED)| (points[start].x + points[end].x) / 2.0,
-    //                     midpoints[start].y |EQ(REQUIRED)| (points[start].y + points[end].y) / 2.0]
-    //            )
-    //            .expect("Could not add quad midpoints");
-    //    }
+        solver
+            .add_constraints(
+                vec![points[0].x + 20.0 |LE(STRONG)| points[2].x,
+                     points[0].x + 20.0 |LE(STRONG)| points[3].x,
 
-    //    solver
-    //        .add_constraints(
-    //            vec![points[0].x + 20.0 |LE(STRONG)| points[2].x,
-    //                 points[0].x + 20.0 |LE(STRONG)| points[3].x,
+                     points[1].x + 20.0 |LE(STRONG)| points[2].x,
+                     points[1].x + 20.0 |LE(STRONG)| points[3].x,
 
-    //                 points[1].x + 20.0 |LE(STRONG)| points[2].x,
-    //                 points[1].x + 20.0 |LE(STRONG)| points[3].x,
+                     points[0].y + 20.0 |LE(STRONG)| points[1].y,
+                     points[0].y + 20.0 |LE(STRONG)| points[2].y,
 
-    //                 points[0].y + 20.0 |LE(STRONG)| points[1].y,
-    //                 points[0].y + 20.0 |LE(STRONG)| points[2].y,
+                     points[3].y + 20.0 |LE(STRONG)| points[1].y,
+                     points[3].y + 20.0 |LE(STRONG)| points[2].y]
+            )
+            .expect("Could not add quad midpoint constraints");
 
-    //                 points[3].y + 20.0 |LE(STRONG)| points[1].y,
-    //                 points[3].y + 20.0 |LE(STRONG)| points[2].y]
-    //        )
-    //        .expect("Could not add quad midpoint constraints");
+        for point in &points {
+            solver
+                .add_constraints(
+                    vec![point.x |GE(REQUIRED)| 0.0,
+                         point.y |GE(REQUIRED)| 0.0,
 
-    //    for point in &points {
-    //        solver
-    //            .add_constraints(
-    //                vec![point.x |GE(REQUIRED)| 0.0,
-    //                     point.y |GE(REQUIRED)| 0.0,
+                         point.x |LE(REQUIRED)| 500.0,
+                         point.y |LE(REQUIRED)| 500.0]
+                )
+                .expect("Could not add required bounds on quad");
+        }
 
-    //                     point.x |LE(REQUIRED)| 500.0,
-    //                     point.y |LE(REQUIRED)| 500.0]
-    //            )
-    //            .expect("Could not add required bounds on quad");
-    //    }
+        assert_eq!([(solver.get_value(midpoints[0].x), solver.get_value(midpoints[0].y)),
+                    (solver.get_value(midpoints[1].x), solver.get_value(midpoints[1].y)),
+                    (solver.get_value(midpoints[2].x), solver.get_value(midpoints[2].y)),
+                    (solver.get_value(midpoints[3].x), solver.get_value(midpoints[3].y))],
+                   [(10.0, 105.0),
+                    (105.0, 200.0),
+                    (200.0, 105.0),
+                    (105.0, 10.0)]);
 
-    //    update_values(solver.fetch_changes());
+        solver.add_edit_variable(points[2].x, STRONG).expect("Could not add x edit variable for 2nd point");
+        solver.add_edit_variable(points[2].y, STRONG).expect("Could not add y edit variable for 2nd point");
+        solver.suggest_value(points[2].x, 300.0).expect("Could not suggest value for x edit variable for 2nd point");
+        solver.suggest_value(points[2].y, 400.0).expect("Could not suggest value for y edit variable for 2nd point");
 
-    //    assert_eq!([(value_of(midpoints[0].x), value_of(midpoints[0].y)),
-    //                (value_of(midpoints[1].x), value_of(midpoints[1].y)),
-    //                (value_of(midpoints[2].x), value_of(midpoints[2].y)),
-    //                (value_of(midpoints[3].x), value_of(midpoints[3].y))],
-    //               [(10.0, 105.0),
-    //                (105.0, 200.0),
-    //                (200.0, 105.0),
-    //                (105.0, 10.0)]);
+        assert_eq!([(solver.get_value(points[0].x), solver.get_value(points[0].y)),
+                    (solver.get_value(points[1].x), solver.get_value(points[1].y)),
+                    (solver.get_value(points[2].x), solver.get_value(points[2].y)),
+                    (solver.get_value(points[3].x), solver.get_value(points[3].y))],
+                   [(10.0, 10.0),
+                    (10.0, 200.0),
+                    (300.0, 400.0),
+                    (200.0, 10.0)]);
 
-    //    solver.add_edit_variable(points[2].x, STRONG).expect("Could not add x edit variable for 2nd point");
-    //    solver.add_edit_variable(points[2].y, STRONG).expect("Could not add y edit variable for 2nd point");
-    //    solver.suggest_value(points[2].x, 300.0).expect("Could not suggest value for x edit variable for 2nd point");
-    //    solver.suggest_value(points[2].y, 400.0).expect("Could not suggest value for y edit variable for 2nd point");
+        assert_eq!([(solver.get_value(midpoints[0].x), solver.get_value(midpoints[0].y)),
+                    (solver.get_value(midpoints[1].x), solver.get_value(midpoints[1].y)),
+                    (solver.get_value(midpoints[2].x), solver.get_value(midpoints[2].y)),
+                    (solver.get_value(midpoints[3].x), solver.get_value(midpoints[3].y))],
+                   [(10.0, 105.0),
+                    (155.0, 300.0),
+                    (250.0, 205.0),
+                    (105.0, 10.0)]);
+    }
 
-    //    update_values(solver.fetch_changes());
+    #[test]
+    fn can_add_and_remove_constraints() {
+        let mut solver = Solver::new();
 
-    //    assert_eq!([(value_of(points[0].x), value_of(points[0].y)),
-    //                (value_of(points[1].x), value_of(points[1].y)),
-    //                (value_of(points[2].x), value_of(points[2].y)),
-    //                (value_of(points[3].x), value_of(points[3].y))],
-    //               [(10.0, 10.0),
-    //                (10.0, 200.0),
-    //                (300.0, 400.0),
-    //                (200.0, 10.0)]);
+        let var = Variable(0);
 
-    //    assert_eq!([(value_of(midpoints[0].x), value_of(midpoints[0].y)),
-    //                (value_of(midpoints[1].x), value_of(midpoints[1].y)),
-    //                (value_of(midpoints[2].x), value_of(midpoints[2].y)),
-    //                (value_of(midpoints[3].x), value_of(midpoints[3].y))],
-    //               [(10.0, 105.0),
-    //                (155.0, 300.0),
-    //                (250.0, 205.0),
-    //                (105.0, 10.0)]);
-    //}
+        let constraint: Constraint<Variable> = var | EQ(REQUIRED) | 100.0;
+        solver.add_constraint(constraint.clone()).unwrap();
+        assert_eq!(solver.get_value(var), 100.0);
 
-    //#[test]
-    //fn remove_constraint() {
-    //    let (value_of, update_values) = new_values();
-
-    //    let mut solver = Solver::new();
-
-    //    let val = Variable::new();
-
-    //    let constraint: Constraint<Variable> = val | EQ(REQUIRED) | 100.0;
-    //    solver.add_constraint(constraint.clone()).unwrap();
-    //    update_values(solver.fetch_changes());
-
-    //    assert_eq!(value_of(val), 100.0);
-
-    //    solver.remove_constraint(&constraint).unwrap();
-    //    solver.add_constraint(val | EQ(REQUIRED) | 0.0).unwrap();
-    //    update_values(solver.fetch_changes());
-
-    //    assert_eq!(value_of(val), 0.0);
-    //}
+        solver.remove_constraint(&constraint).unwrap();
+        solver.add_constraint(var | EQ(REQUIRED) | 0.0).unwrap();
+        assert_eq!(solver.get_value(var), 0.0);
+    }
 }
